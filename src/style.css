@@ -1,0 +1,609 @@
+/* Ciak - Custom Adwaita Styles */
+
+/* Preferences: support banner card */
+.support-group {
+    padding: 12px;
+    background: linear-gradient(
+        90deg,
+        alpha(@purple_3, 0.25) 0%,
+        alpha(@blue_3, 0.25) 100%
+    );
+}
+
+/* Force identical headerbar height on every page (pill-less pages match pill pages) */
+headerbar {
+    min-height: 48px;
+}
+
+/* View pill toggle buttons (matches the Preferences dialog view switcher tabs) */
+.view-pill {
+    border-radius: 9px;
+    padding: 6px 12px;
+    background: transparent;
+    border: none;
+    color: @window_fg_color;
+    font-weight: bold;
+    transition: background-color 150ms ease;
+}
+
+.view-pill:hover {
+    background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.view-pill:checked {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    color: @window_fg_color;
+}
+
+.view-pill:checked:hover {
+    background: color-mix(in srgb, currentColor 13%, transparent);
+}
+
+/* Subtle lift + fade micro-interaction (Design 3 style) for clickable cards */
+.hover-lift {
+    transition: transform 150ms ease, opacity 150ms ease;
+}
+
+.hover-lift:hover {
+    transform: translateY(-2px);
+    opacity: 0.9;
+}
+
+.hover-lift:active,
+.hover-lift.pressed {
+    transform: translateY(0) scale(0.96);
+    opacity: 1.0;
+}
+
+/* Hero action buttons: quiet 2px lift on hover, gentle press-down on
+   release. No glow, no saturation, no bounce. */
+.detail-page .hero-btn {
+    transition: transform 160ms ease;
+}
+
+.detail-page .hero-btn:hover {
+    transform: translateY(-2px);
+}
+
+.detail-page .hero-btn:active {
+    transform: translateY(0) scale(0.97);
+}
+
+.detail-page .watched-active {
+    background-color: alpha(@accent_color, 0.25);
+}
+
+.detail-page .watched-active:hover {
+    background-color: alpha(@accent_color, 0.35);
+}
+
+.poster-image {
+    border-radius: 12px;
+    background: alpha(@window_fg_color, 0.06);
+}
+
+flowbox flowboxchild {
+    border-radius: 12px;
+}
+
+.cover-dropshadow {
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 3%), 0 1px 3px 1px rgb(0 0 0 / 7%), 0 2px 6px 2px rgb(0 0 0 / 3%);
+}
+
+.detail-poster {
+    border-radius: 12px;
+    background: alpha(@window_fg_color, 0.06);
+}
+
+.related-image {
+    border-radius: 8px;
+    background: alpha(@window_fg_color, 0.06);
+}
+
+.cast-avatar {
+    border-radius: 999px;
+    background: alpha(@window_fg_color, 0.06);
+}
+
+/* Skeleton loading placeholder */
+.skeleton-pulse {
+    background: alpha(@window_fg_color, 0.06);
+    border-radius: 12px;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 0.06; }
+    50% { opacity: 0.12; }
+}
+
+/* Poster overlay badge */
+.poster-badge {
+    background: alpha(@accent_bg_color, 0.9);
+    color: white;
+    border-radius: 8px;
+    padding: 2px 6px;
+    font-weight: bold;
+    font-size: x-small;
+}
+
+/* Thumbnail row for list items with posters */
+.thumbnail-row {
+    padding: 6px 12px;
+    border-radius: 12px;
+}
+
+.thumbnail-row:hover {
+    background: alpha(@accent_bg_color, 0.08);
+}
+
+.thumbnail-row image {
+    border-radius: 8px;
+}
+
+/* Rating badge */
+.rating-badge {
+    background: alpha(@accent_bg_color, 0.2);
+    color: @accent_bg_color;
+    border-radius: 8px;
+    padding: 2px 8px;
+    font-weight: bold;
+    font-size: small;
+}
+
+/* Profile stats card */
+.stats-card {
+    background: @card_bg_color;
+    border-radius: 16px;
+    padding: 16px;
+}
+
+.stat-item {
+}
+
+.stat-value {
+    font-size: x-large;
+    font-weight: bold;
+    color: @accent_bg_color;
+}
+
+.stat-label {
+    font-size: small;
+    color: alpha(@window_fg_color, 0.6);
+}
+
+/* Genre/tag chips */
+.chip {
+    background: alpha(@accent_bg_color, 0.15);
+    color: @accent_bg_color;
+    border-radius: 16px;
+    padding: 4px 12px;
+    font-size: small;
+}
+
+/* Detail page poster */
+.detail-poster {
+    border-radius: 12px;
+    background: @card_bg_color;
+    box-shadow: 0 4px 12px alpha(black, 0.15);
+    transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.detail-poster:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px alpha(black, 0.25);
+}
+
+/* Detail page rating display */
+.detail-rating {
+    background: alpha(@warning_color, 0.15);
+    color: @warning_color;
+    border-radius: 8px;
+    padding: 2px 8px;
+    font-weight: bold;
+    font-size: small;
+}
+
+/* Pill buttons */
+.pill {
+    border-radius: 20px;
+    padding: 6px 16px;
+}
+
+/* Login page branding */
+.login-brand {
+    font-size: 32px;
+    font-weight: bold;
+}
+
+/* Code display for device auth */
+.auth-code {
+    font-size: 48px;
+    font-weight: bold;
+    letter-spacing: 8px;
+    font-family: monospace;
+    color: @accent_bg_color;
+    background: alpha(@accent_bg_color, 0.1);
+    border-radius: 16px;
+    padding: 16px 32px;
+}
+
+/* Empty state styling */
+.empty-state {
+    padding: 48px;
+}
+
+/* Tagline display */
+.tagline {
+    font-style: italic;
+    color: alpha(@window_fg_color, 0.7);
+    font-size: small;
+}
+
+/* Card sections (related + cast) */
+.card-section {
+    background: @card_bg_color;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+/* Content page card wrapper */
+.content-page {
+    background: @card_bg_color;
+    border-radius: 12px;
+    padding: 8px;
+}
+
+/* ==== Watchlist dashboard ==== */
+.ciak-dashboard .movie-poster-frame {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 4px 12px alpha(black, 0.15);
+}
+
+.ciak-dashboard .movie-poster-frame > picture {
+    border-radius: 12px;
+}
+
+.ciak-dashboard .movie-card {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+}
+
+.ciak-dashboard .movie-card .heading {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.ciak-dashboard .movie-card .caption {
+    font-size: 12px;
+}
+
+.ciak-dashboard .movie-card-button {
+    padding: 0;
+    border-radius: 12px;
+    background: transparent;
+    transition: transform 150ms ease, opacity 150ms ease, box-shadow 150ms ease;
+}
+
+.ciak-dashboard .movie-card-button:hover {
+    transform: translateY(-2px);
+}
+
+.ciak-dashboard .movie-card-button:active {
+    transform: translateY(0) scale(0.96);
+}
+
+.ciak-dashboard .movie-card-button:hover .movie-poster-frame {
+    box-shadow: 0 8px 24px alpha(black, 0.25);
+}
+
+.ciak-dashboard .movie-card-button:focus,
+.ciak-dashboard .movie-card-button:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+
+.ciak-dashboard flowboxchild:focus {
+    outline: none;
+}
+
+.ciak-dashboard flowboxchild:hover,
+.ciak-dashboard flowboxchild:focus,
+.ciak-dashboard flowboxchild:focus-visible {
+    background: transparent;
+    background-color: transparent;
+    box-shadow: none;
+    outline: none;
+}
+
+/* Sidebar card background */
+.sidebar-card {
+    background: @card_bg_color;
+    border-radius: 12px;
+    padding: 6px;
+}
+
+/* ==== Detail page: coherent Design 4-style cards ==== */
+.detail-page .movie-poster-frame {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 4px 12px alpha(black, 0.15);
+}
+
+.detail-page .movie-poster-frame > picture {
+    border-radius: 12px;
+}
+
+.detail-page .movie-card {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+}
+
+.detail-page .movie-card .heading {
+    font-weight: 600;
+    font-size: 14px;
+    color: @window_fg_color;
+}
+
+.detail-page .movie-card .caption {
+    font-size: 12px;
+}
+
+.detail-page .movie-card-button {
+    padding: 0;
+    border-radius: 12px;
+    background: transparent;
+    transition: transform 150ms ease, opacity 150ms ease, box-shadow 150ms ease;
+}
+
+.detail-page .movie-card-button:hover {
+    transform: translateY(-2px);
+}
+
+.detail-page .movie-card-button:hover .movie-poster-frame {
+    box-shadow: 0 8px 24px alpha(black, 0.25);
+}
+
+.detail-page .movie-card-button:active {
+    transform: translateY(0) scale(0.96);
+}
+
+.detail-page .movie-card-button:focus,
+.detail-page .movie-card-button:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+
+.detail-page .cast-card,
+.detail-page .cast-card:hover,
+.detail-page .cast-card:focus,
+.detail-page .cast-card:focus-visible,
+.detail-page flowboxchild:hover .cast-card,
+.detail-page flowboxchild:focus .cast-card,
+.detail-page flowboxchild:focus-visible .cast-card {
+    background: transparent;
+    background-color: transparent;
+    box-shadow: none;
+    outline: none;
+}
+
+.detail-page .cast-card {
+    border-radius: 12px;
+    padding: 4px;
+    transition: transform 150ms ease, opacity 150ms ease;
+}
+
+.detail-page .cast-card:hover {
+    transform: translateY(-2px);
+}
+
+.detail-page flowboxchild:hover,
+.detail-page flowboxchild:focus,
+.detail-page flowboxchild:focus-visible {
+    background: transparent;
+    background-color: transparent;
+    box-shadow: none;
+    outline: none;
+}
+
+.detail-page .cast-card .heading {
+    font-weight: 600;
+    font-size: 13px;
+    color: @window_fg_color;
+}
+
+.detail-page .cast-card .caption {
+    font-size: 12px;
+}
+
+.detail-page .cast-card .cast-avatar {
+    border-radius: 999px;
+}
+
+.skeleton {
+    background-color: alpha(@theme_fg_color, 0.08);
+    border-radius: 8px;
+}
+
+.skeleton.cast-avatar {
+    border-radius: 999px;
+}
+
+/* About page app icon */
+.about-icon {
+    border-radius: 20px;
+}
+
+/* Watchlist sort dropdown */
+.sort-dropdown {
+    font-size: 13px;
+}
+
+.sort-dropdown > button {
+    border-radius: 9px;
+    padding: 4px 12px;
+    min-height: 28px;
+}
+
+.sort-dropdown > button:hover {
+    background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+/* Trailer button: hero-btn lift with YouTube-red accent */
+.detail-page .trailer-btn {
+    background: alpha(@red_2, 0.15);
+    color: @red_2;
+}
+
+.detail-page .trailer-btn:hover {
+    background: alpha(@red_2, 0.25);
+    color: @red_3;
+}
+
+.detail-page .trailer-btn:active {
+    background: alpha(@red_2, 0.35);
+}
+
+/* Profile page avatar ring */
+.profile-avatar {
+    outline: 3px solid alpha(@accent_bg_color, 0.3);
+    outline-offset: 2px;
+    border-radius: 999px;
+}
+
+/* Gallery stat card: solid KPI card with border and hover accent */
+.gallery-stat-card {
+    background: @card_bg_color;
+    border: 1px solid alpha(@window_fg_color, 0.08);
+    border-radius: 12px;
+    padding: 16px 8px;
+    min-width: 160px;
+    transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.gallery-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px alpha(black, 0.12);
+    border-color: alpha(@accent_bg_color, 0.3);
+}
+
+/* Gallery stars: larger accent colored */
+.star-filled {
+    color: @accent_bg_color;
+    font-size: 16px;
+}
+
+.star-empty {
+    color: alpha(@window_fg_color, 0.2);
+    font-size: 16px;
+}
+
+/* Rating picker stars (detail page dialog) */
+.rating-star {
+    font-size: 26px;
+    padding: 0;
+}
+
+.rating-star.star-filled {
+    color: @accent_bg_color;
+}
+
+.rating-star.star-empty {
+    color: alpha(@window_fg_color, 0.2);
+}
+
+/* Calendar */
+.cal-nav-label {
+    font-size: 0.95rem;
+}
+
+.cal-year-label {
+    margin-bottom: -2px;
+}
+
+.cal-month-label {
+    margin-top: -2px;
+}
+
+.cal-weekday {
+    opacity: 0.8;
+    font-size: 0.9rem;
+}
+
+.cal-day {
+    border: 1px solid color-mix(in srgb, currentColor 7%, transparent);
+    background: color-mix(in srgb, currentColor 3%, transparent);
+}
+
+.cal-today {
+    background: alpha(@accent_bg_color, 0.10);
+    border: 1px solid alpha(@accent_bg_color, 0.35);
+}
+
+.cal-day-num {
+    font-weight: bold;
+    font-size: 1rem;
+}
+
+.cal-day-has-shows:hover {
+    background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.cal-day-popover {
+    min-width: 260px;
+}
+
+.cal-poster {
+    border-radius: 6px;
+}
+
+.cal-poster-btn {
+    padding: 0;
+    border-radius: 6px;
+}
+
+.cal-count-chip {
+    background: alpha(@accent_bg_color, 0.15);
+    border-radius: 12px;
+    padding: 6px 14px;
+    font-weight: bold;
+    font-size: 0.95rem;
+    min-width: 48px;
+}
+
+.cal-count-chip:hover {
+    background: alpha(@accent_bg_color, 0.25);
+}
+
+.cal-upcoming-btn {
+    margin-left: 12px;
+}
+
+.cal-upcoming-popover {
+    min-width: 280px;
+}
+
+.cal-upcoming {
+    background: var(--card-bg-color);
+    border-radius: 12px;
+    padding: 10px 14px;
+}
+
+.cal-upcoming-date {
+    font-weight: bold;
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+.cal-upcoming-ep {
+    font-weight: 600;
+    opacity: 0.6;
+    font-size: 0.85rem;
+}
+

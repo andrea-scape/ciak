@@ -1,0 +1,79 @@
+name: Build and publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flatpak
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder xvfb
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.gnome.Platform//50 org.gnome.Sdk//50
+
+      - name: Import signing key
+        env:
+          FLATPAK_GPG_KEY: ${{ secrets.FLATPAK_GPG_KEY }}
+        run: |
+          if [ -n "$FLATPAK_GPG_KEY" ]; then
+            echo "$FLATPAK_GPG_KEY" | gpg --batch --import
+          fi
+
+      - name: Build Flatpak
+        run: |
+          xvfb-run flatpak-builder --user --force-clean --repo=repo \
+            --disable-rofiles-fuse --install-deps-from=flathub \
+            flatpak_app build-aux/flatpak/io.github.andrea_scape.ciak.json
+
+      - name: Create bundle
+        run: |
+          flatpak build-bundle repo ciak.flatpak \
+            io.github.andrea_scape.ciak master
+
+      - name: Sign and export repo
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          flatpak build-export --gpg-sign=andrea-scape@users.noreply.github.com \
+            --update-appstream repo flatpak_app
+          flatpak build-update-repo --gpg-sign=andrea-scape@users.noreply.github.com repo
+
+      - name: Create flatpakrepo
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          mkdir -p publish
+          cp -r repo publish/repo
+          mv publish/repo/* publish/ && rm -rf publish/repo
+          {
+            echo "[Flatpak Repo]"
+            echo "Title=Ciak"
+            echo "Url=https://andrea-scape.github.io/ciak/"
+            echo "Homepage=https://github.com/andrea-scape/ciak"
+            echo "Icon=https://github.com/andrea-scape/ciak/raw/main/data/icons/hicolor/scalable/apps/io.github.andrea_scape.ciak.svg"
+            echo "Description=A movie and TV show tracker for Linux"
+            echo "GPGKey=$(base64 -w0 build-aux/flatpak/ciak.gpg)"
+          } > publish/ciak.flatpakrepo
+
+      - name: Deploy to GitHub Pages
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./publish
+          publish_branch: gh-pages
+          force_orphan: true
+
+      - uses: softprops/action-gh-release@v3
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ciak.flatpak
+          generate_release_notes: true

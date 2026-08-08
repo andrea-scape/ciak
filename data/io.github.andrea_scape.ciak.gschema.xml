@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<schemalist>
+  <schema id="@appid@" path="/io/github/andrea_scape/ciak/">
+    <key name="window-width" type="i">
+      <default>1200</default>
+      <summary>Window width</summary>
+    </key>
+    <key name="window-height" type="i">
+      <default>800</default>
+      <summary>Window height</summary>
+    </key>
+    <key name="window-maximized" type="b">
+      <default>false</default>
+      <summary>Window is maximized</summary>
+    </key>
+    <key name="show-sidebar" type="b">
+      <default>true</default>
+      <summary>Show sidebar</summary>
+    </key>
+    <key name="sidebar-default-mode" type="s">
+      <default>'remember'</default>
+      <summary>Sidebar startup mode</summary>
+      <description>Whether to always collapse the sidebar on startup or remember the last state.</description>
+    </key>
+    <key name="shortcut-watchlist-enabled" type="b">
+      <default>true</default>
+      <summary>Enable Watchlist shortcut</summary>
+    </key>
+    <key name="shortcut-search-enabled" type="b">
+      <default>true</default>
+      <summary>Enable Search shortcut</summary>
+    </key>
+    <key name="shortcut-preferences-enabled" type="b">
+      <default>true</default>
+      <summary>Enable Preferences shortcut</summary>
+    </key>
+    <key name="shortcut-sidebar-enabled" type="b">
+      <default>true</default>
+      <summary>Enable Sidebar toggle shortcut</summary>
+    </key>
+    <key name="show-ratings-badges" type="b">
+      <default>true</default>
+      <summary>Show ratings badges on posters</summary>
+    </key>
+    <key name="hide-adult-content" type="b">
+      <default>false</default>
+      <summary>Hide adult content in search results</summary>
+    </key>
+    <key name="show-stats" type="b">
+      <default>true</default>
+      <summary>Show the stats section on the watchlist page</summary>
+    </key>
+    <key name="theme" type="s">
+      <default>'default'</default>
+      <summary>Color scheme</summary>
+    </key>
+    <key name="default-page" type="s">
+      <default>'watchlist'</default>
+      <summary>Page shown on startup</summary>
+    </key>
+    <key name="cache-max-size-mb" type="i">
+      <default>512</default>
+      <summary>Maximum cache size in megabytes</summary>
+    </key>
+    <key name="clear-cache-on-exit" type="b">
+      <default>false</default>
+      <summary>Clear cached data on exit</summary>
+    </key>
+    <key name="disable-animations" type="b">
+      <default>false</default>
+      <summary>Disable animations</summary>
+    </key>
+    <key name="tmdb-api-key" type="s">
+      <default>''</default>
+      <summary>TMDB API key</summary>
+      <description>API key for The Movie Database (TMDB). Used to fetch movie/show metadata.</description>
+    </key>
+    <key name="onboarding-completed" type="b">
+      <default>false</default>
+      <summary>First-run onboarding finished</summary>
+      <description>Whether the user has completed the first-run setup wizard.</description>
+    </key>
+    <key name="metadata-cache-ttl" type="i">
+      <default>3600</default>
+      <summary>Metadata cache TTL in seconds</summary>
+      <description>How long (in seconds) to cache TMDB metadata before re-fetching. Default is 3600 (1 hour).</description>
+    </key>
+  </schema>
+</schemalist>

@@ -1,0 +1,42 @@
+"""Application configuration helpers.
+
+Most user-facing settings are stored in GSettings (GSchema).
+This module handles low-level file paths and guarantees Flatpak
+compatibility by using GLib directory functions.
+"""
+
+from pathlib import Path
+from gi.repository import GLib
+
+APP_ID = "@APP_ID@"
+
+
+def get_db_path() -> str:
+    """Flatpak-safe path to the local SQLite database.
+
+    Resolves to:
+      Dev:      ~/.local/share/ciak/ciak.db
+      Flatpak:  ~/.var/app/<APP_ID>/data/ciak/ciak.db
+    """
+    data_dir = Path(GLib.get_user_data_dir()) / "ciak"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "ciak.db")
+
+
+def get_cache_dir() -> str:
+    """Flatpak-safe path to the poster / metadata cache directory.
+
+    Resolves to:
+      Dev:      ~/.cache/ciak/
+      Flatpak:  ~/.var/app/<APP_ID>/cache/ciak/
+    """
+    cache_dir = Path(GLib.get_user_cache_dir()) / "ciak"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return str(cache_dir)
+
+
+def get_poster_cache_dir() -> str:
+    """Directory where downloaded poster images are stored."""
+    poster_dir = Path(GLib.get_user_cache_dir()) / "ciak" / "posters"
+    poster_dir.mkdir(parents=True, exist_ok=True)
+    return str(poster_dir)

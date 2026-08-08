@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.bak
+build/
+_build/
+*.builddir
+.flatpak-builder/
+build-aux/flatpak/build/
+cache/
+settings
+data/icons/Adwaita/
+data/gschemas.compiled
+*.flatpak
+.vscode/
+.idea/
+venv/

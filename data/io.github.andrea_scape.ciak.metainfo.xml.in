@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>@appid@</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Ciak</name>
+  <summary>A movie and TV show tracker for Linux</summary>
+  <description>
+    <p>Ciak keeps your watchlist, ratings and watched history on your Linux desktop. Search the TMDB catalogue, follow TV shows and see when the next episode airs. Everything stays on your computer, stored locally in a SQLite database. Trakt sync is coming in a future update.</p>
+  </description>
+  <launchable type="desktop-id">@appid@.desktop</launchable>
+  <developer_name>Andrea Scaperrotta</developer_name>
+  <developer id="io.github.andrea_scape">
+    <name>Andrea Scaperrotta</name>
+  </developer>
+  <url type="homepage">https://github.com/andrea-scape/ciak</url>
+  <url type="bugtracker">https://github.com/andrea-scape/ciak/issues</url>
+  <url type="vcs-browser">https://github.com/andrea-scape/ciak</url>
+  <url type="donation">https://buymeacoffee.com/ascape</url>
+  <url type="help">https://github.com/andrea-scape/ciak/blob/main/README.md</url>
+  <keywords>
+    <keyword>movies</keyword>
+    <keyword>TV shows</keyword>
+    <keyword>watchlist</keyword>
+    <keyword>tracker</keyword>
+    <keyword>TMDB</keyword>
+  </keywords>
+  <categories>
+    <category>Video</category>
+    <category>AudioVideo</category>
+  </categories>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/andrea-scape/ciak/v0.1.2/screenshots/search.png</image>
+      <caption>Search for movies and TV shows</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/andrea-scape/ciak/v0.1.2/screenshots/watchlist.png</image>
+      <caption>Your watchlist at a glance</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/andrea-scape/ciak/v0.1.2/screenshots/history.png</image>
+      <caption>Watched history and ratings</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/andrea-scape/ciak/v0.1.2/screenshots/profile.png</image>
+      <caption>Your profile and stats</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/andrea-scape/ciak/v0.1.2/screenshots/detail.png</image>
+      <caption>Movie and show details</caption>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1">
+    <content_attribute id="violence-cartoon">none</content_attribute>
+    <content_attribute id="violence-fantasy">none</content_attribute>
+    <content_attribute id="violence-realistic">none</content_attribute>
+    <content_attribute id="violence-bloodshed">none</content_attribute>
+    <content_attribute id="violence-sexual">none</content_attribute>
+    <content_attribute id="drugs-alcohol">none</content_attribute>
+    <content_attribute id="drugs-narcotics">none</content_attribute>
+    <content_attribute id="drugs-tobacco">none</content_attribute>
+    <content_attribute id="sex-nudity">none</content_attribute>
+    <content_attribute id="sex-themes">none</content_attribute>
+    <content_attribute id="language-profanity">none</content_attribute>
+    <content_attribute id="language-humor">none</content_attribute>
+    <content_attribute id="language-discrimination">none</content_attribute>
+    <content_attribute id="social-chat">none</content_attribute>
+  </content_rating>
+  <releases>
+    <release version="0.1.2" date="2026-08-08">
+      <description>
+        <ul>
+          <li>Icons now render in sandboxed environments</li>
+          <li>External links open through the desktop portal</li>
+          <li>Distribution: personal Flatpak repository on GitHub Pages</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.1" date="2026-08-06">
+      <description>
+        <ul>
+          <li>Removed the Trakt client wording; sync ships in a future update</li>
+          <li>Developer name now reads Andrea Scaperrotta</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.0" date="2026-07-29"/>
+  </releases>
+</component>

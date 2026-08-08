@@ -1,0 +1,13 @@
+# Python dependencies (documented for reference; the Flatpak manifest
+# pins these independently during the flatpak-builder build)
+httpx==0.28.1
+certifi==2024.12.14
+h11==0.16.0
+h2==4.2.0
+hpack==4.1.0
+hyperframe==6.1.0
+sniffio==1.3.1
+priority==2.0.0
+anyio==4.8.0
+httpcore==1.0.9
+idna==3.18
