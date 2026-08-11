@@ -273,6 +273,21 @@ class MainPage(Adw.Bin):
 
         sidebar_tv.add_top_bar(sidebar_header)
 
+        flatpak_id = os.environ.get("FLATPAK_ID", config.APP_ID)
+        if flatpak_id.endswith(".Devel"):
+            dev_icon = Gtk.Image(icon_name="utilities-terminal-symbolic")
+            dev_icon.add_css_class("dev-chip-icon")
+            dev_label = Gtk.Label(label="Development")
+            dev_label.add_css_class("dev-chip")
+            dev_pill = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            dev_pill.set_halign(Gtk.Align.CENTER)
+            dev_pill.append(dev_icon)
+            dev_pill.append(dev_label)
+            dev_pill.add_css_class("dev-chip-pill")
+            dev_chip_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            dev_chip_box.append(dev_pill)
+            sidebar_tv.add_bottom_bar(dev_chip_box)
+
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
@@ -611,6 +626,7 @@ class MainPage(Adw.Bin):
                     ("detail", lambda: self.metadata_service.get_movie(item.tmdb_id)),
                     ("watchlist_ids", lambda: self.user_repo.get_watchlist_ids()),
                     ("watched_ids", lambda: self.user_repo.get_watched_ids("movie")),
+                    ("rating", lambda: detail_page._get_my_rating()),
                 ]
                 lazy_keys = [
                     ("related", lambda: self.metadata_service.get_related_movies(item.tmdb_id)),
@@ -623,6 +639,7 @@ class MainPage(Adw.Bin):
                     ("progress", lambda: None),
                     ("watchlist_ids", lambda: self.user_repo.get_watchlist_ids()),
                     ("watched_ids", lambda: self.user_repo.get_watched_ids("show")),
+                    ("rating", lambda: detail_page._get_my_rating()),
                 ]
                 lazy_keys = [
                     ("related", lambda: self.metadata_service.get_related_shows(item.tmdb_id)),

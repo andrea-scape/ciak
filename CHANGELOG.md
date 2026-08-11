@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- Development builds show a "Development" pill (terminal icon + label) at the
+  bottom of the sidebar, so a dev build is recognizable at a glance
+- Dev-build detection now reads the runtime FLATPAK_ID instead of the compiled
+  app-id, so the pill follows the manifest you actually run (GNOME Builder and
+  installed flatpaks alike)
+- Rating dialog no longer closes when clicking a star to rate (inverted
+  hit-test on click-away)
+- The details-page Rate button shows the current rating ("Rated ★ 4/5") with an
+  active style once a movie or series has been rated
+- Rating dialog hover preview no longer throws when the pointer leaves a star
+  (handler signature matched to the motion controller's leave signal)
+- The Rate button keeps showing "Rated ★ 4/5" after the app restarts — the
+  saved rating is loaded again when the details page opens
+- Details-page action buttons keep a fixed width, so toggling Watchlist /
+  Watched / Rate no longer reshuffles the layout
+- Removed the unused detail-page fetch path
+
 ## 0.1.2 - 2026-08-08
 
 - Symbolic icons render in sandboxed environments (icon-theme fallback to Adwaita)

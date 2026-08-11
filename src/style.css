@@ -69,11 +69,25 @@ headerbar {
     transform: translateY(0) scale(0.97);
 }
 
-.detail-page .watched-active {
+.detail-page .hero-btn-watchlist {
+    min-width: 13.5em;
+}
+
+.detail-page .hero-btn-watched {
+    min-width: 9.5em;
+}
+
+.detail-page .hero-btn-rate {
+    min-width: 9em;
+}
+
+.detail-page .watched-active,
+.detail-page .rated-active {
     background-color: alpha(@accent_color, 0.25);
 }
 
-.detail-page .watched-active:hover {
+.detail-page .watched-active:hover,
+.detail-page .rated-active:hover {
     background-color: alpha(@accent_color, 0.35);
 }
 
@@ -180,6 +194,25 @@ flowbox flowboxchild {
     border-radius: 16px;
     padding: 4px 12px;
     font-size: small;
+}
+
+/* Development build chip (fixed blue, independent of accent) */
+.dev-chip-pill {
+    background: #3584e4;
+    border-radius: 999px;
+    padding: 6px 14px;
+    margin: 8px;
+    box-shadow: 0 1px 3px alpha(black, 0.2);
+}
+
+.dev-chip {
+    color: white;
+    font-weight: 600;
+    font-size: small;
+}
+
+.dev-chip-icon {
+    color: white;
 }
 
 /* Detail page poster */

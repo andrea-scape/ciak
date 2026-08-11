@@ -7,9 +7,12 @@ Build the development Flatpak (app-id `io.github.andrea_scape.ciak.Devel`):
 ```bash
 flatpak run org.flatpak.Builder --user --install \
   build-aux/flatpak/build \
-  io.github.andrea_scape.ciak.json
+  io.github.andrea_scape.ciak.Devel.json
 flatpak run io.github.andrea_scape.ciak.Devel
 ```
+
+The dev build shows a "Development" pill at the bottom of the sidebar, so you
+can tell it apart from a release install.
 
 See the README for full build instructions, dependency requirements, and
 the project layout.

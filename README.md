@@ -81,7 +81,7 @@ Build a watchlist, mark episodes as seen, and get a heads-up when the next episo
 
 ### Building the Flatpak
 
-Development builds use the root manifest `io.github.andrea_scape.ciak.json`
+Development builds use the root manifest `io.github.andrea_scape.ciak.Devel.json`
 (app-id `io.github.andrea_scape.ciak.Devel`, so posters decode without
 glycin's sandbox). Requires `flatpak` and `org.flatpak.Builder` (or
 `flatpak-builder`), plus the GNOME 50 SDK/runtime:
@@ -90,7 +90,7 @@ glycin's sandbox). Requires `flatpak` and `org.flatpak.Builder` (or
 flatpak install org.gnome.Platform//50 org.gnome.Sdk//50
 flatpak run org.flatpak.Builder --user --install \
   build-aux/flatpak/build \
-  io.github.andrea_scape.ciak.json
+  io.github.andrea_scape.ciak.Devel.json
 flatpak run io.github.andrea_scape.ciak.Devel
 ```
 
@@ -98,6 +98,9 @@ Release builds use `build-aux/flatpak/io.github.andrea_scape.ciak.json`
 (plain app-id, glycin sandbox enabled). The GitHub Actions workflow builds
 that manifest and publishes it to the personal flatpak repository on GitHub
 Pages.
+
+Development builds show a blue "Development" pill (icon + label) at the bottom
+of the sidebar; release builds don't.
 
 ### Project layout
 
@@ -107,7 +110,7 @@ src/                 # Python application (GTK4 / libadwaita)
   data/              # Local SQLite store + TMDB service/client + caching
   domain/            # Domain models (Movie, Show, Episode, Season…)
 data/                # Flatpak metadata: desktop file, AppStream, GSettings schema, icon
-io.github.andrea_scape.ciak.json   # Flatpak manifest (development build, .Devel)
+io.github.andrea_scape.ciak.Devel.json   # Flatpak manifest (development build, .Devel)
 build-aux/flatpak/   # Release manifest, GPG key, build directory
 ```
 

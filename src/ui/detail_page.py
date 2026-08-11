@@ -2,7 +2,6 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib, Pango, Gdk
-import threading
 import datetime
 import urllib.parse
 import sqlite3
@@ -26,6 +25,7 @@ class DetailPage(Gtk.Box):
         self._cancelled = False
         self._in_watchlist = False
         self._is_watched = False
+        self._my_rating = 0
         self._watched_episodes = set()
         self._watched_seasons = set()
 
@@ -96,6 +96,7 @@ class DetailPage(Gtk.Box):
         self.watchlist_btn.add_css_class("suggested-action")
         self.watchlist_btn.add_css_class("pill")
         self.watchlist_btn.add_css_class("hero-btn")
+        self.watchlist_btn.add_css_class("hero-btn-watchlist")
         wl_box = Gtk.Box(spacing=6)
         self.watchlist_icon = Gtk.Image(icon_name="view-grid-symbolic")
         wl_box.append(self.watchlist_icon)
@@ -108,6 +109,7 @@ class DetailPage(Gtk.Box):
         self.watched_btn = Gtk.Button()
         self.watched_btn.add_css_class("pill")
         self.watched_btn.add_css_class("hero-btn")
+        self.watched_btn.add_css_class("hero-btn-watched")
         w_box = Gtk.Box(spacing=6)
         self.watched_icon = Gtk.Image(icon_name="object-select-symbolic")
         w_box.append(self.watched_icon)
@@ -117,15 +119,18 @@ class DetailPage(Gtk.Box):
         self.watched_btn.connect("clicked", self._toggle_watched)
         action_box.append(self.watched_btn)
 
-        rate_btn = Gtk.Button()
-        rate_btn.add_css_class("pill")
-        rate_btn.add_css_class("hero-btn")
+        self.rate_btn = Gtk.Button()
+        self.rate_btn.add_css_class("pill")
+        self.rate_btn.add_css_class("hero-btn")
+        self.rate_btn.add_css_class("hero-btn-rate")
         r_box = Gtk.Box(spacing=6)
-        r_box.append(Gtk.Image(icon_name="starred-symbolic"))
-        r_box.append(Gtk.Label(label="Rate"))
-        rate_btn.set_child(r_box)
-        rate_btn.connect("clicked", self._rate_item)
-        action_box.append(rate_btn)
+        self.rate_icon = Gtk.Image(icon_name="starred-symbolic")
+        r_box.append(self.rate_icon)
+        self.rate_label = Gtk.Label(label="Rate")
+        r_box.append(self.rate_label)
+        self.rate_btn.set_child(r_box)
+        self.rate_btn.connect("clicked", self._rate_item)
+        action_box.append(self.rate_btn)
 
         self.trailer_btn = Gtk.Button()
         self.trailer_btn.add_css_class("pill")
@@ -216,6 +221,7 @@ class DetailPage(Gtk.Box):
                 data.get("watchlist_ids", set()),
                 data.get("watched_ids", set()),
                 poster_pixbuf=poster_pixbuf,
+                my_rating=data.get("rating") or 0,
             )
         else:
             self._populate_show_hero(
@@ -225,6 +231,7 @@ class DetailPage(Gtk.Box):
                 data.get("watchlist_ids", set()),
                 data.get("watched_ids", set()),
                 poster_pixbuf=poster_pixbuf,
+                my_rating=data.get("rating") or 0,
             )
         self.related_section.set_visible(True)
         self.cast_section.set_visible(True)
@@ -321,80 +328,8 @@ class DetailPage(Gtk.Box):
             flow.append(card)
         return box
 
-    def _fetch(self):
-        try:
-            results = {}
-            if self.media_type == "movie":
-                def fetch_one(key, fn):
-                    try:
-                        results[key] = fn()
-                    except Exception:
-                        results[key] = None if key in ("detail", "progress") else (set() if "ids" in key else [])
-
-                threads = []
-                for key, fn in [
-                    ("detail", lambda: self.metadata_service.get_movie(self.item.tmdb_id)),
-                    ("related", lambda: self.metadata_service.get_related_movies(self.item.tmdb_id)),
-                    ("cast", lambda: self.metadata_service.get_movie_cast(self.item.tmdb_id)),
-                    ("watchlist_ids", lambda: self.user_repo.get_watchlist_ids()),
-                    ("watched_ids", lambda: self.user_repo.get_watched_ids("movie")),
-                ]:
-                    t = threading.Thread(target=fetch_one, args=(key, fn))
-                    t.start()
-                    threads.append(t)
-                for t in threads:
-                    t.join()
-
-                detail = results.get("detail")
-                if not detail:
-                    GLib.idle_add(self._show_error, "Failed to load movie details")
-                    return
-
-                GLib.idle_add(self._populate_movie_hero, detail,
-                              results.get("watchlist_ids", set()),
-                              results.get("watched_ids", set()))
-                GLib.idle_add(self._populate_related, results.get("related", []))
-                GLib.idle_add(self._populate_cast, results.get("cast", []))
-            else:
-                def fetch_one(key, fn):
-                    try:
-                        results[key] = fn()
-                    except Exception:
-                        results[key] = None if key in ("detail", "progress") else (set() if "ids" in key else [])
-
-                threads = []
-                for key, fn in [
-                    ("detail", lambda: self.metadata_service.get_show(self.item.tmdb_id)),
-                    ("seasons", lambda: self.metadata_service.get_show_seasons(self.item.tmdb_id)),
-                    ("related", lambda: self.metadata_service.get_related_shows(self.item.tmdb_id)),
-                    ("cast", lambda: self.metadata_service.get_show_cast(self.item.tmdb_id)),
-                    ("progress", lambda: None),
-                    ("watchlist_ids", lambda: self.user_repo.get_watchlist_ids()),
-                    ("watched_ids", lambda: self.user_repo.get_watched_ids("show")),
-                ]:
-                    t = threading.Thread(target=fetch_one, args=(key, fn))
-                    t.start()
-                    threads.append(t)
-                for t in threads:
-                    t.join()
-
-                detail = results.get("detail")
-                if not detail:
-                    GLib.idle_add(self._show_error, "Failed to load show details")
-                    return
-
-                GLib.idle_add(self._populate_show_hero, detail,
-                              results.get("seasons", []),
-                              {},
-                              results.get("watchlist_ids", set()),
-                              results.get("watched_ids", set()))
-                GLib.idle_add(self._populate_related, results.get("related", []))
-                GLib.idle_add(self._populate_cast, results.get("cast", []))
-        except NetworkError as e:
-            GLib.idle_add(self._show_error, str(e))
-
     def _populate_movie_hero(self, movie, watchlist_ids, watched_ids,
-                               poster_pixbuf=None):
+                             poster_pixbuf=None, my_rating=None):
         self._trailer_title = movie.title or ""
         self._trailer_year = movie.year
 
@@ -440,10 +375,13 @@ class DetailPage(Gtk.Box):
         self._set_watchlist_ui()
         self._is_watched = self.item.tmdb_id in watched_ids
         self._set_watched_ui()
+        if my_rating is not None:
+            self._my_rating = my_rating
+        self._set_rate_ui()
         return False
 
     def _populate_show_hero(self, show, seasons, season_episodes, watchlist_ids, watched_ids,
-                             poster_pixbuf=None):
+                             poster_pixbuf=None, my_rating=None):
         self._trailer_title = show.title or ""
         self._trailer_year = show.year
 
@@ -496,6 +434,9 @@ class DetailPage(Gtk.Box):
             if self._season_fully_watched(s.season_number)
         }
         self._recompute_is_watched()
+        if my_rating is not None:
+            self._my_rating = my_rating
+        self._set_rate_ui()
 
         seasons_list = Gtk.ListBox()
         seasons_list.add_css_class("boxed-list")
@@ -1001,6 +942,23 @@ class DetailPage(Gtk.Box):
             self.watched_label.set_text("Mark Watched")
             self.watched_btn.remove_css_class("watched-active")
 
+    def _get_my_rating(self):
+        try:
+            for r in self.user_repo.get_ratings(self.media_type):
+                if r["tmdb_id"] == self.item.tmdb_id:
+                    return int(r["rating"])
+        except (KeyError, ValueError, sqlite3.Error):
+            pass
+        return 0
+
+    def _set_rate_ui(self):
+        if self._my_rating > 0:
+            self.rate_label.set_text(f"Rated \u2605 {self._my_rating}/5")
+            self.rate_btn.add_css_class("rated-active")
+        else:
+            self.rate_label.set_text("Rate")
+            self.rate_btn.remove_css_class("rated-active")
+
     def _toggle_watched(self, btn):
         btn.set_sensitive(False)
         GLib.Thread.new("toggle-watched", self._do_toggle_watched, btn)
@@ -1096,6 +1054,8 @@ class DetailPage(Gtk.Box):
 
     def _rate_item(self, btn):
         def _on_saved():
+            self._my_rating = self._get_my_rating()
+            self._set_rate_ui()
             if self.main_page is not None:
                 self.main_page.invalidate_page("profile")
 
@@ -1232,7 +1192,7 @@ class RatingDialog(Adw.Dialog):
         if picked is None:
             self.close()
             return
-        inside = child is picked or child.is_ancestor(picked)
+        inside = picked is child or picked.is_ancestor(child)
         if not inside:
             self.close()
 
@@ -1252,7 +1212,7 @@ class RatingDialog(Adw.Dialog):
         self._preview = i
         self._refresh_stars()
 
-    def _on_star_leave(self, _controller, _x, _y):
+    def _on_star_leave(self, _controller):
         self._preview = 0
         self._refresh_stars()
 
