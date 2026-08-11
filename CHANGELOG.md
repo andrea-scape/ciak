@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 - 2026-08-11
 
 - Development builds show a "Development" pill (terminal icon + label) at the
   bottom of the sidebar, so a dev build is recognizable at a glance
