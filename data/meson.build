@@ -1,5 +1,10 @@
 conf = configuration_data()
 conf.set('appid', app_id)
+if app_id.endswith('.Devel')
+  conf.set('app_name', 'Ciak (Development)')
+else
+  conf.set('app_name', 'Ciak')
+endif
 
 desktop_file = configure_file(
   input: 'io.github.andrea_scape.ciak.desktop.in',

@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=Ciak
+Name=@app_name@
 Comment=Track movies and TV shows on your Linux desktop
 Exec=ciak
 Icon=@appid@
