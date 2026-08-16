@@ -30,7 +30,10 @@ class FixedPaintable(GObject.Object, Gdk.Paintable):
         return self._height
 
     def do_get_intrinsic_aspect_ratio(self):
-        return self._width / self._height if self._height else 0
+        # Report no aspect ratio so the widget keeps a fixed intrinsic size
+        # instead of scaling height with width (which pushed card titles
+        # away from their posters).
+        return 0.0
 
     def do_snapshot(self, snapshot, width, height):
         if self._texture:

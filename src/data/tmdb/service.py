@@ -112,14 +112,43 @@ class TmdbMetadataService:
             data = self._client.get_movie_credits(tmdb_id)
         except (httpx.HTTPError, ValueError) as exc:
             raise NetworkError(f"Failed to fetch movie cast {tmdb_id}: {exc}") from exc
-        return [self._raw_to_cast(m) for m in data.get("cast", [])[:20]]
+        director = next(
+            (c for c in data.get("crew", []) if c.get("job") == "Director"), None
+        )
+        leader = []
+        if director:
+            leader.append(
+                CastMember(
+                    person_id=director["id"],
+                    name=director.get("name", "Unknown"),
+                    character="Director",
+                    photo_url=self._client._image_url(director.get("profile_path"), "w185"),
+                )
+            )
+        cast = [self._raw_to_cast(m) for m in data.get("cast", [])[:20 - len(leader)]]
+        return leader + cast
 
     def get_show_cast(self, tmdb_id: int) -> list[CastMember]:
         try:
             data = self._client.get_tv_credits(tmdb_id)
         except (httpx.HTTPError, ValueError) as exc:
             raise NetworkError(f"Failed to fetch show cast {tmdb_id}: {exc}") from exc
-        return [self._raw_to_cast(m) for m in data.get("cast", [])[:20]]
+        creators = []
+        try:
+            creators = self.get_show(tmdb_id).creators or []
+        except NetworkError:
+            creators = []
+        leader = [
+            CastMember(
+                person_id=c.get("id"),
+                name=c.get("name", "Unknown"),
+                character="Showrunner",
+                photo_url=c.get("photo_url"),
+            )
+            for c in creators
+        ]
+        cast = [self._raw_to_cast(m) for m in data.get("cast", [])[:20 - len(leader)]]
+        return leader + cast
 
     # ------------------------------------------------------------------
     # Related / Similar
@@ -313,6 +342,8 @@ class TmdbMetadataService:
             genre_ids=self._extract_genre_ids(raw),
             collection_id=(raw.get("belongs_to_collection") or {}).get("id"),
             tagline=raw.get("tagline"),
+            budget=raw.get("budget"),
+            revenue=raw.get("revenue"),
         )
 
     def _raw_to_show(self, raw: dict) -> Show:
@@ -340,6 +371,14 @@ class TmdbMetadataService:
             next_episode_number=next_ep.get("episode_number"),
             next_episode_name=next_ep.get("name"),
             next_episode_still=self._client._image_url(next_ep.get("still_path"), "w300"),
+            creators=[
+                {
+                    "id": c.get("id"),
+                    "name": c.get("name", "Unknown"),
+                    "photo_url": self._client._image_url(c.get("profile_path"), "w185"),
+                }
+                for c in raw.get("created_by", [])
+            ],
         )
 
     @staticmethod

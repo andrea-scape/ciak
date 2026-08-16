@@ -179,10 +179,12 @@ class ProfileBase(Gtk.Box):
 
         val = Gtk.Label(label="0")
         val.add_css_class("stat-value")
+        val.add_css_class("title-3")
         card.append(val)
 
         lbl = Gtk.Label(label=label_text)
         lbl.add_css_class("stat-label")
+        lbl.add_css_class("caption")
         card.append(lbl)
 
         return card

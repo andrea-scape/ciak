@@ -18,6 +18,8 @@ class Movie:
     collection_id: int | None = None
     tagline: str | None = None
     certification: str | None = None
+    budget: int | None = None
+    revenue: int | None = None
     media_type: str = "movie"
 
 
@@ -45,6 +47,7 @@ class Show:
     next_episode_number: int | None = None
     next_episode_name: str | None = None
     next_episode_still: str | None = None
+    creators: list[dict] = field(default_factory=list)
 
 
 @dataclass

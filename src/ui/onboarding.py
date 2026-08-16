@@ -178,6 +178,7 @@ class OnboardingWindow(Adw.Window):
         box.append(self.key_entry)
 
         self.status_label = Gtk.Label(label="")
+        self.status_label.add_css_class("body")
         self.status_label.set_halign(Gtk.Align.START)
         self.status_label.set_wrap(True)
         self.status_label.set_visible(False)

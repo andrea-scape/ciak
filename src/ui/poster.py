@@ -26,13 +26,16 @@ def create_poster(width, height, css_class="poster-image"):
     box.set_overflow(Gtk.Overflow.HIDDEN)
     box.add_css_class(css_class)
 
+    paintable = FixedPaintable(width, height)
     picture = Gtk.Picture()
+    picture.set_paintable(paintable)
     picture.set_content_fit(Gtk.ContentFit.COVER)
     picture.set_halign(Gtk.Align.FILL)
     picture.set_valign(Gtk.Align.FILL)
     picture.set_hexpand(True)
     picture.set_vexpand(True)
     picture.set_can_shrink(True)
+    picture._fixed_paintable = paintable
     box.append(picture)
     picture.set_opacity(0.0)
     return box, picture
@@ -164,7 +167,11 @@ def _decode_file(path, picture, on_load, delay_ms):
 def _apply_pixbuf(picture, pixbuf, on_load, delay_ms):
     try:
         texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-        picture.set_paintable(texture)
+        fixed = getattr(picture, "_fixed_paintable", None)
+        if fixed is not None:
+            fixed.set_texture(texture)
+        else:
+            picture.set_paintable(texture)
         if delay_ms > 0:
             GLib.timeout_add(delay_ms, _delayed_fade, picture, on_load)
         else:

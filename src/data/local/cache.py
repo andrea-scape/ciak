@@ -47,6 +47,9 @@ _CACHE_MEDIA = _cache_table("""
         next_episode_number    INTEGER,
         next_episode_name      TEXT,
         next_episode_still     TEXT,
+        budget                 INTEGER,
+        revenue                INTEGER,
+        creators               TEXT,
         cached_at      INTEGER NOT NULL,
         updated_at     INTEGER NOT NULL
     )
@@ -159,6 +162,18 @@ class MetadataCache:
             conn.execute(
                 "ALTER TABLE media_items ADD COLUMN next_episode_still TEXT"
             )
+        if "budget" not in cols:
+            conn.execute(
+                "ALTER TABLE media_items ADD COLUMN budget INTEGER"
+            )
+        if "revenue" not in cols:
+            conn.execute(
+                "ALTER TABLE media_items ADD COLUMN revenue INTEGER"
+            )
+        if "creators" not in cols:
+            conn.execute(
+                "ALTER TABLE media_items ADD COLUMN creators TEXT"
+            )
 
     # ------------------------------------------------------------------
     # Media (movies & shows)
@@ -201,6 +216,9 @@ class MetadataCache:
             "next_episode_number": getattr(media, "next_episode_number", None),
             "next_episode_name": getattr(media, "next_episode_name", None),
             "next_episode_still": getattr(media, "next_episode_still", None),
+            "budget": getattr(media, "budget", None),
+            "revenue": getattr(media, "revenue", None),
+            "creators": json.dumps(getattr(media, "creators", []) or []),
             "cached_at": now,
             "updated_at": now,
         }
@@ -211,7 +229,7 @@ class MetadataCache:
              votes, poster_url, backdrop_url, imdb_id, genres, genre_ids,
              collection_id, tagline, certification, status,
              next_episode_air_date, next_episode_season, next_episode_number,
-             next_episode_name, next_episode_still,
+             next_episode_name, next_episode_still, budget, revenue, creators,
              cached_at, updated_at)
             VALUES (:tmdb_id, :media_type, :title, :year, :overview, :runtime,
                     :rating, :votes, :poster_url, :backdrop_url, :imdb_id,
@@ -219,7 +237,8 @@ class MetadataCache:
                     :certification, :status,
                     :next_episode_air_date, :next_episode_season,
                     :next_episode_number, :next_episode_name,
-                    :next_episode_still, :cached_at, :updated_at)
+                    :next_episode_still, :budget, :revenue, :creators,
+                    :cached_at, :updated_at)
             """,
             fields,
         )
@@ -354,9 +373,15 @@ class MetadataCache:
                 next_episode_number=row["next_episode_number"],
                 next_episode_name=row["next_episode_name"],
                 next_episode_still=row["next_episode_still"],
+                creators=json.loads(row["creators"] or "[]"),
                 **common,
             )
-        return Movie(collection_id=row["collection_id"], **common)
+        return Movie(
+            collection_id=row["collection_id"],
+            budget=row["budget"],
+            revenue=row["revenue"],
+            **common,
+        )
 
     @staticmethod
     def _row_to_season(row) -> Season:

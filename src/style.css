@@ -59,6 +59,16 @@ headerbar {
    release. No glow, no saturation, no bounce. */
 .detail-page .hero-btn {
     transition: transform 160ms ease;
+    box-shadow: none;
+    border: none;
+}
+
+.detail-page .hero-btn:focus,
+.detail-page .hero-btn:focus-visible {
+    outline: none;
+    box-shadow: none;
+    border: none;
+    background-image: none;
 }
 
 .detail-page .hero-btn:hover {
@@ -69,17 +79,6 @@ headerbar {
     transform: translateY(0) scale(0.97);
 }
 
-.detail-page .hero-btn-watchlist {
-    min-width: 13.5em;
-}
-
-.detail-page .hero-btn-watched {
-    min-width: 9.5em;
-}
-
-.detail-page .hero-btn-rate {
-    min-width: 9em;
-}
 
 .detail-page .watched-active,
 .detail-page .rated-active {
@@ -241,7 +240,7 @@ flowbox flowboxchild {
 /* Pill buttons */
 .pill {
     border-radius: 20px;
-    padding: 6px 16px;
+    padding: 6px 8px;
 }
 
 /* Login page branding */
@@ -437,6 +436,8 @@ flowbox flowboxchild {
 }
 
 .detail-page flowboxchild:hover,
+.detail-page flowboxchild:active,
+.detail-page flowboxchild:selected,
 .detail-page flowboxchild:focus,
 .detail-page flowboxchild:focus-visible {
     background: transparent;

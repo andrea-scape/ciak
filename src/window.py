@@ -25,7 +25,7 @@ class MainWindow(Adw.ApplicationWindow):
         if self.settings.get_boolean("window-maximized"):
             self.maximize()
 
-        self.set_size_request(1120, 720)
+        self.set_size_request(750, 750)
 
         self._apply_animations_pref()
         self.settings.connect(

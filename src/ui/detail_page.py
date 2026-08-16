@@ -1,13 +1,13 @@
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib, Pango, Gdk
+from gi.repository import Gtk, Adw, GLib, Pango, Gdk, Gio
 import datetime
 import urllib.parse
 import sqlite3
 from ..domain.models import Movie, Show
 from ..domain.exceptions import NetworkError
-from .poster import create_poster, create_avatar, load_poster, load_avatar, POSTER_SLOTS
+from .poster import create_poster, create_avatar, load_avatar, POSTER_SLOTS
 from .painting import FixedPaintable, _load_texture_sync
 from .anim import fade_in
 
@@ -35,17 +35,22 @@ class DetailPage(Gtk.Box):
         self.append(scrolled)
 
         clamp = Adw.Clamp()
-        clamp.set_maximum_size(900)
+        clamp.set_maximum_size(1400)
+        clamp.set_tightening_threshold(900)
+        clamp.set_halign(Gtk.Align.FILL)
+        clamp.set_hexpand(True)
         scrolled.set_child(clamp)
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         clamp.set_child(content_box)
 
         top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=32)
+        top_box.set_hexpand(True)
         top_box.set_margin_start(16)
         top_box.set_margin_end(16)
         top_box.set_margin_top(16)
         top_box.set_margin_bottom(16)
+        self.top_box = top_box
         content_box.append(top_box)
 
         self.progress_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -55,10 +60,11 @@ class DetailPage(Gtk.Box):
         self.progress_box.set_visible(False)
         content_box.append(self.progress_box)
 
-        self.poster_box, self.poster_area = create_poster(240, 360, "detail-poster")
+        self.poster_box, self.poster_area = create_poster(320, 480, "detail-poster")
         top_box.append(self.poster_box)
 
         info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        info_box.set_hexpand(True)
         info_box.set_valign(Gtk.Align.START)
         top_box.append(info_box)
 
@@ -71,6 +77,7 @@ class DetailPage(Gtk.Box):
 
         self.tagline_label = Gtk.Label()
         self.tagline_label.add_css_class("tagline")
+        self.tagline_label.add_css_class("caption")
         self.tagline_label.set_halign(Gtk.Align.START)
         self.tagline_label.set_xalign(0)
         self.tagline_label.set_visible(False)
@@ -88,61 +95,65 @@ class DetailPage(Gtk.Box):
         self.status_label.set_xalign(0)
         info_box.append(self.status_label)
 
-        action_box = Gtk.Box(spacing=8)
-        action_box.set_margin_top(8)
-        info_box.append(action_box)
+        self.action_box = Gtk.FlowBox()
+        self.action_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.action_box.set_column_spacing(8)
+        self.action_box.set_row_spacing(8)
+        self.action_box.set_margin_top(8)
+        info_box.append(self.action_box)
 
         self.watchlist_btn = Gtk.Button()
         self.watchlist_btn.add_css_class("suggested-action")
         self.watchlist_btn.add_css_class("pill")
         self.watchlist_btn.add_css_class("hero-btn")
-        self.watchlist_btn.add_css_class("hero-btn-watchlist")
         wl_box = Gtk.Box(spacing=6)
+        wl_box.set_halign(Gtk.Align.CENTER)
         self.watchlist_icon = Gtk.Image(icon_name="view-grid-symbolic")
         wl_box.append(self.watchlist_icon)
         self.watchlist_label = Gtk.Label(label="Add to Watchlist")
         wl_box.append(self.watchlist_label)
         self.watchlist_btn.set_child(wl_box)
         self.watchlist_btn.connect("clicked", self._toggle_watchlist)
-        action_box.append(self.watchlist_btn)
+        self.action_box.append(self.watchlist_btn)
 
         self.watched_btn = Gtk.Button()
         self.watched_btn.add_css_class("pill")
         self.watched_btn.add_css_class("hero-btn")
-        self.watched_btn.add_css_class("hero-btn-watched")
         w_box = Gtk.Box(spacing=6)
+        w_box.set_halign(Gtk.Align.CENTER)
         self.watched_icon = Gtk.Image(icon_name="object-select-symbolic")
         w_box.append(self.watched_icon)
         self.watched_label = Gtk.Label(label="Mark Watched")
         w_box.append(self.watched_label)
         self.watched_btn.set_child(w_box)
         self.watched_btn.connect("clicked", self._toggle_watched)
-        action_box.append(self.watched_btn)
+        self.action_box.append(self.watched_btn)
 
         self.rate_btn = Gtk.Button()
         self.rate_btn.add_css_class("pill")
         self.rate_btn.add_css_class("hero-btn")
-        self.rate_btn.add_css_class("hero-btn-rate")
         r_box = Gtk.Box(spacing=6)
+        r_box.set_halign(Gtk.Align.CENTER)
         self.rate_icon = Gtk.Image(icon_name="starred-symbolic")
         r_box.append(self.rate_icon)
         self.rate_label = Gtk.Label(label="Rate")
         r_box.append(self.rate_label)
         self.rate_btn.set_child(r_box)
         self.rate_btn.connect("clicked", self._rate_item)
-        action_box.append(self.rate_btn)
+        self.action_box.append(self.rate_btn)
 
         self.trailer_btn = Gtk.Button()
         self.trailer_btn.add_css_class("pill")
         self.trailer_btn.add_css_class("hero-btn")
         self.trailer_btn.add_css_class("trailer-btn")
         t_box = Gtk.Box(spacing=6)
+        t_box.set_halign(Gtk.Align.CENTER)
         t_box.append(Gtk.Image(icon_name="media-playback-start-symbolic"))
         self.trailer_label = Gtk.Label(label="Trailer")
         t_box.append(self.trailer_label)
         self.trailer_btn.set_child(t_box)
         self.trailer_btn.connect("clicked", self._open_trailer)
-        action_box.append(self.trailer_btn)
+        self.action_box.append(self.trailer_btn)
 
         self._trailer_title = ""
         self._trailer_year = None
@@ -153,6 +164,7 @@ class DetailPage(Gtk.Box):
         info_box.append(self.genres_box)
 
         self.overview_label = Gtk.Label()
+        self.overview_label.add_css_class("body")
         self.overview_label.set_wrap(True)
         self.overview_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.overview_label.set_halign(Gtk.Align.FILL)
@@ -213,14 +225,24 @@ class DetailPage(Gtk.Box):
         content_box.append(self.cast_section)
         content_box.append(self.related_section)
 
-    def populate_hero(self, data, poster_pixbuf=None):
+
+
+    def _apply_poster_stacked(self):
+        """Small window: move the poster above the info column."""
+        self.top_box.set_orientation(Gtk.Orientation.VERTICAL)
+
+    def _apply_poster_beside(self):
+        """Wide window: restore the poster beside the info column."""
+        self.top_box.set_orientation(Gtk.Orientation.HORIZONTAL)
+
+    def populate_hero(self, data, poster_texture=None):
         """Populate the main detail content (hero). Related/cast load separately."""
         if self.media_type == "movie":
             self._populate_movie_hero(
                 data.get("detail"),
                 data.get("watchlist_ids", set()),
                 data.get("watched_ids", set()),
-                poster_pixbuf=poster_pixbuf,
+                poster_texture=poster_texture,
                 my_rating=data.get("rating") or 0,
             )
         else:
@@ -230,7 +252,7 @@ class DetailPage(Gtk.Box):
                 data.get("season_episodes") or {},
                 data.get("watchlist_ids", set()),
                 data.get("watched_ids", set()),
-                poster_pixbuf=poster_pixbuf,
+                poster_texture=poster_texture,
                 my_rating=data.get("rating") or 0,
             )
         self.related_section.set_visible(True)
@@ -244,6 +266,31 @@ class DetailPage(Gtk.Box):
         """Populate the cast & crew section."""
         GLib.idle_add(self._populate_cast, cast)
 
+    def set_poster(self, texture):
+        """Apply a poster texture loaded by the deferred prefetch phase."""
+        if texture is None:
+            return False
+        self.poster_area._fixed_paintable.set_texture(texture)
+        fade_in(self.poster_area, 300)
+        return False
+
+    def update_season_episodes(self, season_episodes):
+        """Attach prefetched episodes to the season rows and refresh the
+        watched state/checkboxes (for shows)."""
+        if self._cancelled:
+            return False
+        self._season_episodes = season_episodes or {}
+        for expander in getattr(self, "_season_expanders", []):
+            state = getattr(expander, "_season_state", None)
+            if not state:
+                continue
+            season = state.get("season")
+            if season is not None:
+                season.episodes = self._season_episodes.get(season.season_number, [])
+            self._sync_season_check(state.get("season_number"))
+        self._recompute_is_watched()
+        return False
+
     @staticmethod
     def _format_votes(votes):
         if votes is None:
@@ -252,15 +299,40 @@ class DetailPage(Gtk.Box):
             return f"{votes / 1000:.1f}k votes"
         return f"{votes} votes"
 
+    @staticmethod
+    def _money(value):
+        if not value:
+            return ""
+        if value >= 1_000_000_000:
+            return f"${value / 1_000_000_000:.1f}B"
+        if value >= 1_000_000:
+            return f"${value / 1_000_000:.1f}M"
+        if value >= 1_000:
+            return f"${value / 1_000:.0f}K"
+        return f"${value}"
+
+    @staticmethod
+    def _runtime(minutes):
+        if not minutes:
+            return ""
+        hours, mins = divmod(int(minutes), 60)
+        if hours == 0:
+            return f"{mins}m"
+        if mins == 0:
+            return f"{hours}h"
+        return f"{hours}h {mins}m"
+
     def _create_related_skeleton(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        # homogeneous=True, halign=FILL (default) - adaptive even spacing.
+        # OLD config (backup): homogeneous=False, halign=START, min2/max5
         flow = Gtk.FlowBox()
         flow.set_selection_mode(Gtk.SelectionMode.NONE)
         flow.set_homogeneous(True)
         flow.set_column_spacing(20)
         flow.set_row_spacing(28)
-        flow.set_min_children_per_line(5)
-        flow.set_max_children_per_line(5)
+        flow.set_min_children_per_line(2)
+        flow.set_max_children_per_line(6)
         flow.set_valign(Gtk.Align.START)
         box.append(flow)
 
@@ -296,24 +368,26 @@ class DetailPage(Gtk.Box):
 
     def _create_cast_skeleton(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        # homogeneous=True, halign=FILL (default) - adaptive even spacing.
+        # OLD config (backup): homogeneous=False, halign=START, spacing 12/12
         flow = Gtk.FlowBox()
         flow.set_selection_mode(Gtk.SelectionMode.NONE)
         flow.set_homogeneous(True)
         flow.set_column_spacing(12)
         flow.set_row_spacing(12)
         flow.set_min_children_per_line(2)
-        flow.set_max_children_per_line(6)
+        flow.set_max_children_per_line(10)
         flow.set_valign(Gtk.Align.START)
         box.append(flow)
 
         for _ in range(6):
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             card.set_halign(Gtk.Align.CENTER)
-            card.set_size_request(96, -1)
+            card.set_size_request(112, -1)
 
             avatar = Gtk.Box()
             avatar.add_css_class("skeleton")
-            avatar.set_size_request(96, 96)
+            avatar.set_size_request(112, 112)
             avatar.set_halign(Gtk.Align.CENTER)
             avatar.set_overflow(Gtk.Overflow.HIDDEN)
             avatar.add_css_class("cast-avatar")
@@ -329,7 +403,7 @@ class DetailPage(Gtk.Box):
         return box
 
     def _populate_movie_hero(self, movie, watchlist_ids, watched_ids,
-                             poster_pixbuf=None, my_rating=None):
+                             poster_texture=None, my_rating=None):
         self._trailer_title = movie.title or ""
         self._trailer_year = movie.year
 
@@ -340,12 +414,18 @@ class DetailPage(Gtk.Box):
             self.tagline_label.set_visible(True)
 
         year_str = str(movie.year) if movie.year else ""
-        runtime_str = f"⏱ {movie.runtime} min" if movie.runtime else ""
+        runtime_str = f"⏱ {self._runtime(movie.runtime)}" if movie.runtime else ""
         rating_str = f"★ {movie.rating / 2:.1f}/5" if movie.rating else ""
         votes_str = self._format_votes(movie.votes) if movie.votes else ""
         cert_str = movie.certification if movie.certification else ""
         meta_parts = [p for p in [year_str, runtime_str, cert_str, rating_str, votes_str] if p]
         self.meta_label.set_text("  ·  ".join(meta_parts))
+
+        budget_str = f"Budget {self._money(movie.budget)}" if movie.budget else ""
+        revenue_str = f"Revenue {self._money(movie.revenue)}" if movie.revenue else ""
+        money_str = "  ·  ".join(p for p in [budget_str, revenue_str] if p)
+        self.status_label.set_text(money_str)
+        self.status_label.set_visible(bool(money_str))
 
         if movie.overview:
             self.overview_label.set_text(movie.overview)
@@ -356,18 +436,12 @@ class DetailPage(Gtk.Box):
             for genre in movie.genres:
                 chip = Gtk.Label(label=genre.title())
                 chip.add_css_class("chip")
+                chip.add_css_class("caption")
                 self.genres_box.append(chip)
 
-        if poster_pixbuf:
-            try:
-                texture = Gdk.Texture.new_for_pixbuf(poster_pixbuf)
-                self.poster_area.set_paintable(texture)
-                self.poster_area.set_opacity(1.0)
-            except GLib.Error:
-                if movie.poster_url:
-                    load_poster(movie.poster_url, self.poster_area)
-        elif movie.poster_url:
-            load_poster(movie.poster_url, self.poster_area)
+        if poster_texture is not None:
+            self.poster_area._fixed_paintable.set_texture(poster_texture)
+            self.poster_area.set_opacity(1.0)
 
         self.episodes_box.set_visible(False)
 
@@ -381,14 +455,14 @@ class DetailPage(Gtk.Box):
         return False
 
     def _populate_show_hero(self, show, seasons, season_episodes, watchlist_ids, watched_ids,
-                             poster_pixbuf=None, my_rating=None):
+                             poster_texture=None, my_rating=None):
         self._trailer_title = show.title or ""
         self._trailer_year = show.year
 
         self.title_label.set_text(show.title or "")
 
         year_str = str(show.year) if show.year else ""
-        runtime_str = f"⏱ {show.runtime} min" if show.runtime else ""
+        runtime_str = f"⏱ {self._runtime(show.runtime)}" if show.runtime else ""
         rating_str = f"★ {show.rating / 2:.1f}/5" if show.rating else ""
         votes_str = self._format_votes(show.votes) if show.votes else ""
         cert_str = show.certification if show.certification else ""
@@ -408,18 +482,12 @@ class DetailPage(Gtk.Box):
             for genre in show.genres:
                 chip = Gtk.Label(label=genre.title())
                 chip.add_css_class("chip")
+                chip.add_css_class("caption")
                 self.genres_box.append(chip)
 
-        if poster_pixbuf:
-            try:
-                texture = Gdk.Texture.new_for_pixbuf(poster_pixbuf)
-                self.poster_area.set_paintable(texture)
-                self.poster_area.set_opacity(1.0)
-            except GLib.Error:
-                if show.poster_url:
-                    load_poster(show.poster_url, self.poster_area)
-        elif show.poster_url:
-            load_poster(show.poster_url, self.poster_area)
+        if poster_texture is not None:
+            self.poster_area._fixed_paintable.set_texture(poster_texture)
+            self.poster_area.set_opacity(1.0)
 
         self._in_watchlist = self.item.tmdb_id in watchlist_ids
         self._set_watchlist_ui()
@@ -725,13 +793,15 @@ class DetailPage(Gtk.Box):
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.related_revealer.set_child(inner)
 
+        # homogeneous=True, halign=FILL (default) - adaptive even spacing.
+        # OLD config (backup): homogeneous=False, halign=START, min2/max5
         flow = Gtk.FlowBox()
         flow.set_selection_mode(Gtk.SelectionMode.NONE)
         flow.set_homogeneous(True)
         flow.set_column_spacing(20)
         flow.set_row_spacing(28)
-        flow.set_min_children_per_line(5)
-        flow.set_max_children_per_line(5)
+        flow.set_min_children_per_line(2)
+        flow.set_max_children_per_line(6)
         flow.set_valign(Gtk.Align.START)
         inner.append(flow)
 
@@ -774,6 +844,7 @@ class DetailPage(Gtk.Box):
             title_label.set_xalign(0)
             title_label.set_valign(Gtk.Align.START)
             title_label.set_ellipsize(Pango.EllipsizeMode.END)
+            title_label.set_width_chars(16)
             title_label.set_max_width_chars(16)
             info.append(title_label)
 
@@ -838,28 +909,25 @@ class DetailPage(Gtk.Box):
         inner.set_hexpand(True)
         self.cast_revealer.set_child(inner)
 
-        grid = Gtk.Grid()
-        grid.set_column_spacing(12)
-        grid.set_row_spacing(12)
-        grid.set_column_homogeneous(True)
-        grid.set_halign(Gtk.Align.FILL)
-        grid.set_hexpand(True)
-        inner.append(grid)
+        # homogeneous=True, halign=FILL (default) - adaptive even spacing.
+        # OLD config (backup): homogeneous=False, halign=START, spacing 12/12
+        flow = Gtk.FlowBox()
+        flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        flow.set_homogeneous(True)
+        flow.set_column_spacing(12)
+        flow.set_row_spacing(12)
+        flow.set_min_children_per_line(2)
+        flow.set_max_children_per_line(10)
+        inner.append(flow)
 
-        COLS = 5
-
-        for idx, m in enumerate(members):
-            col = idx % COLS
-            row = idx // COLS
-
+        for m in members:
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            card.set_size_request(96, 184)
+            card.set_size_request(112, 200)
             card.set_halign(Gtk.Align.CENTER)
             card.set_valign(Gtk.Align.START)
-            card.set_hexpand(True)
             card.add_css_class("cast-card")
 
-            avatar_box, avatar_paintable, avatar = create_avatar(96)
+            avatar_box, avatar_paintable, avatar = create_avatar(112)
             card.append(avatar_box)
 
             info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -872,7 +940,7 @@ class DetailPage(Gtk.Box):
             display_name = m.name.replace(" ", "\n")
             name_label = Gtk.Label(label=display_name)
             name_label.set_ellipsize(Pango.EllipsizeMode.END)
-            name_label.set_max_width_chars(14)
+            name_label.set_max_width_chars(18)
             name_label.set_lines(2)
             name_label.set_size_request(-1, 36)
             name_label.set_xalign(0)
@@ -883,7 +951,7 @@ class DetailPage(Gtk.Box):
             if m.character:
                 char_label = Gtk.Label(label=m.character)
                 char_label.set_ellipsize(Pango.EllipsizeMode.END)
-                char_label.set_max_width_chars(14)
+                char_label.set_max_width_chars(18)
                 char_label.set_xalign(0)
                 char_label.set_valign(Gtk.Align.START)
                 char_label.add_css_class("caption")
@@ -891,7 +959,7 @@ class DetailPage(Gtk.Box):
                 info.append(char_label)
 
             card.append(info)
-            grid.attach(card, col, row, 1, 1)
+            flow.append(card)
 
             if m.photo_url:
                 load_avatar(m.photo_url, avatar_paintable, avatar)
@@ -905,11 +973,11 @@ class DetailPage(Gtk.Box):
 
     def _set_watchlist_ui(self):
         if self._in_watchlist:
-            self.watchlist_icon.set_from_icon_name("list-remove-symbolic")
             self.watchlist_label.set_text("Remove from Watchlist")
+            self.watchlist_icon.set_from_icon_name("list-remove-symbolic")
         else:
-            self.watchlist_icon.set_from_icon_name("view-grid-symbolic")
             self.watchlist_label.set_text("Add to Watchlist")
+            self.watchlist_icon.set_from_icon_name("view-grid-symbolic")
 
     def _toggle_watchlist(self, btn):
         btn.set_sensitive(False)
@@ -1065,9 +1133,49 @@ class DetailPage(Gtk.Box):
             self.item.tmdb_id,
             title=self.item.title,
             on_saved=_on_saved,
+            on_submit=self._mark_watched_on_rate,
         )
         dialog.present(self.get_native())
         dialog.attach_click_away()
+
+    def _mark_watched_on_rate(self):
+        """A rating implies the title was seen: mark it watched in the
+        background (movies get the simple marker; shows get every episode
+        that has already aired)."""
+        self.watched_btn.set_sensitive(False)
+        GLib.Thread.new("rate-mark-watched", self._do_rate_mark_watched)
+
+    def _do_rate_mark_watched(self):
+        try:
+            if self.media_type == "show":
+                self._mark_all_watched_show()
+            else:
+                self.user_repo.mark_watched(self.item.tmdb_id, self.media_type)
+            self._is_watched = True
+            GLib.idle_add(self._rate_watch_done)
+        except (sqlite3.Error, NetworkError):
+            GLib.idle_add(self.watched_btn.set_sensitive, True)
+
+    def _rate_watch_done(self):
+        self.watched_btn.set_sensitive(True)
+        self._set_watched_ui()
+        if self.media_type == "show":
+            for expander in getattr(self, "_season_expanders", []):
+                state = getattr(expander, "_season_state", None)
+                if not state:
+                    continue
+                season_check = state.get("season_check")
+                if season_check is not None:
+                    season_check.handler_block_by_func(self._on_season_toggled)
+                    season_check.set_active(self._is_watched)
+                    season_check.handler_unblock_by_func(self._on_season_toggled)
+                for ep, ep_check in state.get("ep_checks", []):
+                    if self._is_aired(ep):
+                        ep_check.handler_block_by_func(self._on_episode_toggled)
+                        ep_check.set_active(True)
+                        ep_check.handler_unblock_by_func(self._on_episode_toggled)
+        self._invalidate_library_pages()
+        return False
 
     def _open_trailer(self, btn):
         query = self._trailer_title
@@ -1075,7 +1183,7 @@ class DetailPage(Gtk.Box):
             query += f" {self._trailer_year}"
         query += " official trailer"
         url = f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(query)}"
-        Gio.App_info_launch_default_for_uri(url, None)
+        Gio.app_info_launch_default_for_uri(url, None)
 
     def _show_error(self, msg):
         self.title_label.set_text(f"Error: {msg}")
@@ -1089,13 +1197,14 @@ class RatingDialog(Adw.Dialog):
     closes; "Clear Rating" removes the rating and stays open.
     """
 
-    def __init__(self, user_repo, media_type, tmdb_id, title="", on_saved=None):
+    def __init__(self, user_repo, media_type, tmdb_id, title="", on_saved=None, on_submit=None):
         super().__init__()
         self._repo = user_repo
         self._media_type = media_type
         self._tmdb_id = tmdb_id
         self._title = title
         self._on_saved = on_saved
+        self._on_submit = on_submit
         self._rating = 0
         self._preview = 0
         self._stars = []
@@ -1245,6 +1354,8 @@ class RatingDialog(Adw.Dialog):
         self._repo.rate_item(self._tmdb_id, self._media_type, self._rating)
         if self._on_saved:
             self._on_saved()
+        if self._on_submit:
+            self._on_submit()
         self.close()
 
     def _clear_rating(self, btn):

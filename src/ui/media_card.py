@@ -72,6 +72,7 @@ def make_media_card(item, main_page=None, footer=None):
     title.set_xalign(0)
     title.set_valign(Gtk.Align.START)
     title.set_ellipsize(Pango.EllipsizeMode.END)
+    title.set_width_chars(TITLE_MAX_CHARS)
     title.set_max_width_chars(TITLE_MAX_CHARS)
     info.append(title)
 

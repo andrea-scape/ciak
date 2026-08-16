@@ -2,7 +2,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gtk, Adw, GLib, Gio, GdkPixbuf
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gtk, Adw, GLib, Gio, GdkPixbuf, Gdk
 import getpass
 import threading
 import urllib.request
@@ -47,8 +48,12 @@ class MainPage(Adw.Bin):
         split_view = Adw.OverlaySplitView()
         split_view.set_collapsed(False)
         split_view.set_pin_sidebar(True)
-        split_view.set_min_sidebar_width(144)
+        split_view.set_min_sidebar_width(208)
         split_view.set_max_sidebar_width(208)
+
+        root_bin = Adw.BreakpointBin()
+        root_bin.set_child(split_view)
+        self._root_bin = root_bin
 
         self._sidebar_page = self._build_sidebar_page()
         split_view.set_sidebar(self._sidebar_page)
@@ -56,7 +61,7 @@ class MainPage(Adw.Bin):
         content_page = self._build_content_page()
         split_view.set_content(content_page)
 
-        self.set_child(split_view)
+        self.set_child(root_bin)
 
         self._split_view = split_view
         if not hasattr(self.win, "settings"):
@@ -76,6 +81,22 @@ class MainPage(Adw.Bin):
         self._pending_detail_removal_id = None
         self._pending_headerbar_sync_id = None
         self._headerbar_generation = 0
+        self._selecting_sidebar = False
+
+        self._hero_stack_bp = Adw.Breakpoint.new(
+            Adw.BreakpointCondition.parse("max-width: 990sp")
+        )
+        self._hero_stack_bp.connect("apply", self._on_hero_narrow)
+        self._hero_stack_bp.connect("unapply", self._on_hero_wide)
+        self._content_bin.add_breakpoint(self._hero_stack_bp)
+        self._hero_narrow = False
+
+        self._sidebar_collapse_bp = Adw.Breakpoint.new(
+            Adw.BreakpointCondition.parse("max-width: 900sp")
+        )
+        self._sidebar_collapse_bp.connect("apply", self._on_sidebar_narrow)
+        self._sidebar_collapse_bp.connect("unapply", self._on_sidebar_wide)
+        self._root_bin.add_breakpoint(self._sidebar_collapse_bp)
 
         default_page = self.win.settings.get_string("default-page")
         if default_page not in PAGE_TITLES:
@@ -216,6 +237,9 @@ class MainPage(Adw.Bin):
         self.win.add_action(self._sidebar_action)
 
         self._apply_sidebar_visibility(self._sidebar_visible)
+        self._split_view.connect(
+            "notify::show-sidebar", self._on_split_show_sidebar_changed
+        )
         self._win_settings_changed_id = self.win.settings.connect(
             "changed::show-sidebar", self._on_settings_sidebar_changed
         )
@@ -249,6 +273,45 @@ class MainPage(Adw.Bin):
         self._split_view.set_show_sidebar(visible)
         self._show_sidebar_btn.set_visible(not visible)
 
+    def _on_split_show_sidebar_changed(self, split_view, _pspec):
+        shown = split_view.get_show_sidebar()
+        self._show_sidebar_btn.set_visible(not shown)
+        if self._sidebar_action.get_state().get_boolean() != shown:
+            self._sidebar_action.set_state(GLib.Variant.new_boolean(shown))
+
+    def _on_sidebar_narrow(self, *_args):
+        """Narrow window: sidebar stops taking space and hides (becomes an
+        overlay you can open with the hamburger). Switch the filter toggles
+        to icon-only to save headerbar space."""
+        self._split_view.set_collapsed(True)
+        self._split_view.set_show_sidebar(False)
+        self._all_label.set_visible(False)
+        self._movie_label.set_visible(False)
+        self._show_label.set_visible(False)
+        self.all_toggle.set_tooltip_text("All")
+        self.movie_toggle.set_tooltip_text("Movies")
+        self.show_toggle.set_tooltip_text("Shows")
+
+    def _on_sidebar_wide(self, *_args):
+        self._split_view.set_collapsed(False)
+        self._apply_sidebar_visibility(self._sidebar_visible)
+        self._all_label.set_visible(True)
+        self._movie_label.set_visible(True)
+        self._show_label.set_visible(True)
+        self.all_toggle.set_tooltip_text(None)
+        self.movie_toggle.set_tooltip_text(None)
+        self.show_toggle.set_tooltip_text(None)
+
+    def _on_hero_narrow(self, *_args):
+        self._hero_narrow = True
+        if self._detail_page is not None:
+            self._detail_page._apply_poster_stacked()
+
+    def _on_hero_wide(self, *_args):
+        self._hero_narrow = False
+        if self._detail_page is not None:
+            self._detail_page._apply_poster_beside()
+
     def _build_sidebar_page(self):
         sidebar_tv = Adw.ToolbarView()
 
@@ -257,7 +320,7 @@ class MainPage(Adw.Bin):
         self._hide_sidebar_btn = Gtk.Button(icon_name="sidebar-show-symbolic")
         self._hide_sidebar_btn.set_tooltip_text("Hide sidebar")
         self._hide_sidebar_btn.set_action_name("win.show-sidebar")
-        sidebar_header.pack_end(self._hide_sidebar_btn)
+        sidebar_header.pack_start(self._hide_sidebar_btn)
 
         app_label = Gtk.Label(label="Ciak")
         app_label.add_css_class("title-2")
@@ -269,7 +332,7 @@ class MainPage(Adw.Bin):
         menu_model.append("About Ciak", "win.about")
         menu_btn = Gtk.MenuButton(icon_name="open-menu-symbolic")
         menu_btn.set_menu_model(menu_model)
-        sidebar_header.pack_start(menu_btn)
+        sidebar_header.pack_end(menu_btn)
 
         sidebar_tv.add_top_bar(sidebar_header)
 
@@ -367,14 +430,16 @@ class MainPage(Adw.Bin):
         self.all_toggle.add_css_class("view-pill")
         all_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         all_box.append(Gtk.Image.new_from_icon_name("view-paged-symbolic"))
-        all_box.append(Gtk.Label(label="All"))
+        self._all_label = Gtk.Label(label="All")
+        all_box.append(self._all_label)
         self.all_toggle.set_child(all_box)
 
         self.movie_toggle = Gtk.ToggleButton()
         self.movie_toggle.add_css_class("view-pill")
         movie_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         movie_box.append(Gtk.Image.new_from_icon_name("video-x-generic-symbolic"))
-        movie_box.append(Gtk.Label(label="Movies"))
+        self._movie_label = Gtk.Label(label="Movies")
+        movie_box.append(self._movie_label)
         self.movie_toggle.set_child(movie_box)
         self.movie_toggle.set_group(self.all_toggle)
         self.movie_toggle.set_active(True)
@@ -383,7 +448,8 @@ class MainPage(Adw.Bin):
         self.show_toggle.add_css_class("view-pill")
         show_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         show_box.append(Gtk.Image.new_from_icon_name("tv-symbolic"))
-        show_box.append(Gtk.Label(label="Shows"))
+        self._show_label = Gtk.Label(label="Shows")
+        show_box.append(self._show_label)
         self.show_toggle.set_child(show_box)
         self.show_toggle.set_group(self.all_toggle)
 
@@ -403,7 +469,11 @@ class MainPage(Adw.Bin):
         self.content_stack.set_transition_duration(150)
         self.content_stack.set_hexpand(True)
         self.content_stack.set_vexpand(True)
-        content_tv.set_content(self.content_stack)
+        self._content_bin = Adw.BreakpointBin()
+        self._content_bin.set_hexpand(True)
+        self._content_bin.set_vexpand(True)
+        self._content_bin.set_child(self.content_stack)
+        content_tv.set_content(self._content_bin)
 
         content_page = Adw.NavigationPage(title="Content")
         content_page.set_child(content_tv)
@@ -588,6 +658,9 @@ class MainPage(Adw.Bin):
             self._previous_main_page = self._current_page
         self._current_page = "detail"
 
+        if self._hero_narrow:
+            detail._apply_poster_stacked()
+
         self.list_box.unselect_all()
         self.profile_list_box.unselect_all()
 
@@ -606,8 +679,17 @@ class MainPage(Adw.Bin):
                 500, self._drop_detail, outgoing
             )
 
-        GLib.Thread.new("detail-prefetch", self._prefetch_detail,
-                         media_type, item, detail)
+        # Fetch the hero metadata immediately so the title/buttons appear as
+        # soon as possible; defer the heavy work (poster decode + related/cast)
+        # until after the slide so it never stutters the animation.
+        GLib.Thread.new("detail-hero", self._prefetch_hero, media_type, item, detail)
+        GLib.timeout_add(400, self._start_detail_rest, media_type, item, detail)
+
+    def _start_detail_rest(self, media_type, item, detail):
+        if getattr(detail, "_cancelled", False):
+            return False
+        GLib.Thread.new("detail-rest", self._prefetch_rest, media_type, item, detail)
+        return False
 
     def _drop_detail(self, detail):
         parent = detail.get_parent()
@@ -616,10 +698,11 @@ class MainPage(Adw.Bin):
         self._pending_detail_removal_id = None
         return False
 
-    def _prefetch_detail(self, media_type, item, detail_page):
+    def _prefetch_hero(self, media_type, item, detail_page):
+        if getattr(detail_page, "_cancelled", False):
+            return
         try:
             hero = {}
-            lazy = {}
 
             if media_type == "movie":
                 hero_keys = [
@@ -628,22 +711,13 @@ class MainPage(Adw.Bin):
                     ("watched_ids", lambda: self.user_repo.get_watched_ids("movie")),
                     ("rating", lambda: detail_page._get_my_rating()),
                 ]
-                lazy_keys = [
-                    ("related", lambda: self.metadata_service.get_related_movies(item.tmdb_id)),
-                    ("cast", lambda: self.metadata_service.get_movie_cast(item.tmdb_id)),
-                ]
             else:
                 hero_keys = [
                     ("detail", lambda: self.metadata_service.get_show(item.tmdb_id)),
                     ("seasons", lambda: self.metadata_service.get_show_seasons(item.tmdb_id)),
-                    ("progress", lambda: None),
                     ("watchlist_ids", lambda: self.user_repo.get_watchlist_ids()),
                     ("watched_ids", lambda: self.user_repo.get_watched_ids("show")),
                     ("rating", lambda: detail_page._get_my_rating()),
-                ]
-                lazy_keys = [
-                    ("related", lambda: self.metadata_service.get_related_shows(item.tmdb_id)),
-                    ("cast", lambda: self.metadata_service.get_show_cast(item.tmdb_id)),
                 ]
 
             self._run_fetch_group(hero, hero_keys)
@@ -652,9 +726,34 @@ class MainPage(Adw.Bin):
                 GLib.idle_add(detail_page._show_error, "Failed to load details. Check your connection.")
                 return
 
+            detail_page._detail = detail
+            detail_page._seasons = hero.get("seasons") or []
+
+            if getattr(detail_page, "_cancelled", False):
+                return
+            GLib.idle_add(detail_page.populate_hero, hero, None)
+        except NetworkError as e:
+            GLib.idle_add(detail_page._show_error, str(e))
+
+    def _prefetch_rest(self, media_type, item, detail_page):
+        if getattr(detail_page, "_cancelled", False):
+            return
+        try:
+            detail = getattr(detail_page, "_detail", None)
+
+            if detail is not None and detail.poster_url:
+                pixbuf = self._download_texture(detail.poster_url)
+                if pixbuf is not None and not getattr(detail_page, "_cancelled", False):
+                    try:
+                        texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+                        GLib.idle_add(detail_page.set_poster, texture)
+                    except GLib.Error:
+                        pass
+
             if media_type == "show":
-                season_episodes = {}
                 from ..threads import submit as _submit_worker
+
+                seasons = getattr(detail_page, "_seasons", None) or []
 
                 def _fetch_season(season):
                     if season.season_number <= 0:
@@ -668,27 +767,33 @@ class MainPage(Adw.Bin):
                     except NetworkError:
                         return season.season_number, []
 
-                futures = [
-                    _submit_worker(_fetch_season, season)
-                    for season in (hero.get("seasons") or [])
-                ]
+                futures = [_submit_worker(_fetch_season, season) for season in seasons]
+                season_episodes = {}
                 for fut in futures:
                     num, eps = fut.result()
                     season_episodes[num] = eps
-                hero["season_episodes"] = season_episodes
+                if not getattr(detail_page, "_cancelled", False):
+                    GLib.idle_add(detail_page.update_season_episodes, season_episodes)
 
-            poster_pixbuf = None
-            if detail.poster_url:
-                poster_pixbuf = self._download_texture(detail.poster_url)
-
-            GLib.idle_add(detail_page.populate_hero, hero, poster_pixbuf)
+            lazy = {}
+            if media_type == "movie":
+                lazy_keys = [
+                    ("related", lambda: self.metadata_service.get_related_movies(item.tmdb_id)),
+                    ("cast", lambda: self.metadata_service.get_movie_cast(item.tmdb_id)),
+                ]
+            else:
+                lazy_keys = [
+                    ("related", lambda: self.metadata_service.get_related_shows(item.tmdb_id)),
+                    ("cast", lambda: self.metadata_service.get_show_cast(item.tmdb_id)),
+                ]
 
             self._run_fetch_group(lazy, lazy_keys)
+            if getattr(detail_page, "_cancelled", False):
+                return
             detail_page.populate_related(lazy.get("related", []))
             detail_page.populate_cast(lazy.get("cast", []))
-
-        except NetworkError as e:
-            GLib.idle_add(detail_page._show_error, str(e))
+        except NetworkError:
+            pass
 
     def _run_fetch_group(self, data, key_fns):
         def fetch_one(key, fn):
