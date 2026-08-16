@@ -25,6 +25,7 @@ class DetailPage(Gtk.Box):
         self._cancelled = False
         self._in_watchlist = False
         self._is_watched = False
+        self._marking_watched = False
         self._my_rating = 0
         self._watched_episodes = set()
         self._watched_seasons = set()
@@ -289,6 +290,7 @@ class DetailPage(Gtk.Box):
                 season.episodes = self._season_episodes.get(season.season_number, [])
             self._sync_season_check(state.get("season_number"))
         self._recompute_is_watched()
+        self._update_action_sensitivity()
         return False
 
     @staticmethod
@@ -406,6 +408,7 @@ class DetailPage(Gtk.Box):
                              poster_texture=None, my_rating=None):
         self._trailer_title = movie.title or ""
         self._trailer_year = movie.year
+        self._detail = movie
 
         self.title_label.set_text(movie.title or "")
 
@@ -413,7 +416,12 @@ class DetailPage(Gtk.Box):
             self.tagline_label.set_text(f'"{movie.tagline}"')
             self.tagline_label.set_visible(True)
 
-        year_str = str(movie.year) if movie.year else ""
+        if movie.release_date:
+            year_str = self._format_date(movie.release_date) or (
+                str(movie.year) if movie.year else ""
+            )
+        else:
+            year_str = str(movie.year) if movie.year else ""
         runtime_str = f"⏱ {self._runtime(movie.runtime)}" if movie.runtime else ""
         rating_str = f"★ {movie.rating / 2:.1f}/5" if movie.rating else ""
         votes_str = self._format_votes(movie.votes) if movie.votes else ""
@@ -452,6 +460,7 @@ class DetailPage(Gtk.Box):
         if my_rating is not None:
             self._my_rating = my_rating
         self._set_rate_ui()
+        self._update_action_sensitivity()
         return False
 
     def _populate_show_hero(self, show, seasons, season_episodes, watchlist_ids, watched_ids,
@@ -534,6 +543,7 @@ class DetailPage(Gtk.Box):
 
             expander.connect("notify::expanded", self._on_season_expanded, season, state)
             seasons_list.append(expander)
+        self._update_action_sensitivity()
         return False
 
     def _season_fully_watched(self, season_number):
@@ -637,14 +647,67 @@ class DetailPage(Gtk.Box):
         except ValueError:
             return True
 
+    @staticmethod
+    def _format_date(iso: str) -> str:
+        try:
+            d = datetime.date.fromisoformat(iso)
+            return f"{d.strftime('%b')} {d.day}, {d.year}"
+        except (ValueError, TypeError):
+            return ""
+
+    @staticmethod
+    def _episode_subtitle(ep, aired) -> str:
+        if aired:
+            return ep.title or ""
+        when = DetailPage._format_date(ep.air_date) if ep.air_date else ""
+        if when:
+            return f"{ep.title} \u00b7 airing {when}" if ep.title else f"airing {when}"
+        return f"{ep.title} \u00b7 (not yet aired)" if ep.title else "(not yet aired)"
+
+    def _release_date_of(self):
+        detail = getattr(self, "_detail", None)
+        if detail is not None and getattr(detail, "release_date", None):
+            return detail.release_date
+        return getattr(self.item, "release_date", None)
+
+    def _movie_release_in_future(self) -> bool:
+        if self.media_type != "movie":
+            return False
+        iso = self._release_date_of()
+        if not iso:
+            return False
+        try:
+            return datetime.date.fromisoformat(iso) > datetime.date.today()
+        except ValueError:
+            return False
+
+    def _show_has_no_aired_episodes(self) -> bool:
+        season_episodes = getattr(self, "_season_episodes", {})
+        if not season_episodes:
+            return False
+        return not any(
+            self._is_aired(ep)
+            for episodes in season_episodes.values()
+            for ep in episodes
+        )
+
+    def _update_action_sensitivity(self):
+        """Disable actions that claim a title was seen while it is not
+        released yet (future movie premiere or show with no aired episodes)."""
+        if self.media_type == "movie":
+            future = self._movie_release_in_future()
+            self.watched_btn.set_sensitive(not future)
+            self.rate_btn.set_sensitive(not future)
+        else:
+            self.watched_btn.set_sensitive(not self._show_has_no_aired_episodes())
+
     def _populate_season_episodes(self, season, expander, state, episodes):
         ep_checks = state["ep_checks"]
         for ep in episodes:
             aired = self._is_aired(ep)
             ep_row = Adw.ActionRow(
                 title=f"S{ep.season_number:02d}E{ep.episode_number:02d}",
-                subtitle=ep.title if aired else f"{ep.title} · (not yet aired)"
-                if ep.title else "(not yet aired)",
+                subtitle=self._episode_subtitle(ep, aired),
             )
             check = Gtk.CheckButton()
             check.set_valign(Gtk.Align.CENTER)
@@ -1028,7 +1091,10 @@ class DetailPage(Gtk.Box):
             self.rate_btn.remove_css_class("rated-active")
 
     def _toggle_watched(self, btn):
+        if self._movie_release_in_future():
+            return
         btn.set_sensitive(False)
+        self._marking_watched = not self._is_watched
         GLib.Thread.new("toggle-watched", self._do_toggle_watched, btn)
 
     def _do_toggle_watched(self, btn):
@@ -1039,7 +1105,7 @@ class DetailPage(Gtk.Box):
                 self._do_mark_watched()
             GLib.idle_add(self._watch_done, btn)
         except sqlite3.Error:
-            GLib.idle_add(btn.set_sensitive, True)
+            GLib.idle_add(self._update_action_sensitivity)
 
     def _do_mark_watched(self):
         if self.media_type == "show":
@@ -1101,7 +1167,7 @@ class DetailPage(Gtk.Box):
 
     def _watch_done(self, btn):
         self._recompute_is_watched()
-        btn.set_sensitive(True)
+        self._update_action_sensitivity()
         if self.media_type == "show":
             for expander in getattr(self, "_season_expanders", []):
                 state = getattr(expander, "_season_state", None)
@@ -1118,9 +1184,15 @@ class DetailPage(Gtk.Box):
                         ep_check.set_active(self._is_watched)
                         ep_check.handler_unblock_by_func(self._on_episode_toggled)
         self._invalidate_library_pages()
+        if self._marking_watched and self._my_rating <= 0:
+            self._open_rate_dialog()
+        self._marking_watched = False
         return False
 
     def _rate_item(self, btn):
+        self._open_rate_dialog()
+
+    def _open_rate_dialog(self):
         def _on_saved():
             self._my_rating = self._get_my_rating()
             self._set_rate_ui()
@@ -1142,6 +1214,8 @@ class DetailPage(Gtk.Box):
         """A rating implies the title was seen: mark it watched in the
         background (movies get the simple marker; shows get every episode
         that has already aired)."""
+        if self._movie_release_in_future():
+            return
         self.watched_btn.set_sensitive(False)
         GLib.Thread.new("rate-mark-watched", self._do_rate_mark_watched)
 
@@ -1154,10 +1228,10 @@ class DetailPage(Gtk.Box):
             self._is_watched = True
             GLib.idle_add(self._rate_watch_done)
         except (sqlite3.Error, NetworkError):
-            GLib.idle_add(self.watched_btn.set_sensitive, True)
+            GLib.idle_add(self._update_action_sensitivity)
 
     def _rate_watch_done(self):
-        self.watched_btn.set_sensitive(True)
+        self._update_action_sensitivity()
         self._set_watched_ui()
         if self.media_type == "show":
             for expander in getattr(self, "_season_expanders", []):

@@ -6,6 +6,7 @@ class Movie:
     tmdb_id: int
     title: str
     year: int | None = None
+    release_date: str | None = None
     overview: str | None = None
     runtime: int | None = None
     rating: float | None = None

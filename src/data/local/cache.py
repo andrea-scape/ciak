@@ -29,6 +29,7 @@ _CACHE_MEDIA = _cache_table("""
         media_type     TEXT    NOT NULL CHECK (media_type IN ('movie', 'show')),
         title          TEXT    NOT NULL,
         year           INTEGER,
+        release_date   TEXT,
         overview       TEXT,
         runtime        INTEGER,
         rating         REAL,
@@ -134,6 +135,10 @@ class MetadataCache:
         cols = {r["name"] for r in conn.execute(
             "PRAGMA table_info(media_items)"
         ).fetchall()}
+        if "release_date" not in cols:
+            conn.execute(
+                "ALTER TABLE media_items ADD COLUMN release_date TEXT"
+            )
         if "genre_ids" not in cols:
             conn.execute(
                 "ALTER TABLE media_items ADD COLUMN genre_ids TEXT"
@@ -198,6 +203,7 @@ class MetadataCache:
             "media_type": media.media_type,
             "title": media.title,
             "year": media.year,
+            "release_date": getattr(media, "release_date", None),
             "overview": media.overview,
             "runtime": getattr(media, "runtime", None),
             "rating": media.rating,
@@ -225,16 +231,16 @@ class MetadataCache:
         self._ensure_conn().execute(
             """
             INSERT OR REPLACE INTO media_items
-            (tmdb_id, media_type, title, year, overview, runtime, rating,
-             votes, poster_url, backdrop_url, imdb_id, genres, genre_ids,
-             collection_id, tagline, certification, status,
-             next_episode_air_date, next_episode_season, next_episode_number,
-             next_episode_name, next_episode_still, budget, revenue, creators,
-             cached_at, updated_at)
-            VALUES (:tmdb_id, :media_type, :title, :year, :overview, :runtime,
-                    :rating, :votes, :poster_url, :backdrop_url, :imdb_id,
-                    :genres, :genre_ids, :collection_id, :tagline,
-                    :certification, :status,
+            (tmdb_id, media_type, title, year, release_date, overview,
+             runtime, rating, votes, poster_url, backdrop_url, imdb_id,
+             genres, genre_ids, collection_id, tagline, certification,
+             status, next_episode_air_date, next_episode_season,
+             next_episode_number, next_episode_name, next_episode_still,
+             budget, revenue, creators, cached_at, updated_at)
+            VALUES (:tmdb_id, :media_type, :title, :year, :release_date,
+                    :overview, :runtime, :rating, :votes, :poster_url,
+                    :backdrop_url, :imdb_id, :genres, :genre_ids,
+                    :collection_id, :tagline, :certification, :status,
                     :next_episode_air_date, :next_episode_season,
                     :next_episode_number, :next_episode_name,
                     :next_episode_still, :budget, :revenue, :creators,
@@ -378,6 +384,7 @@ class MetadataCache:
             )
         return Movie(
             collection_id=row["collection_id"],
+            release_date=row["release_date"],
             budget=row["budget"],
             revenue=row["revenue"],
             **common,

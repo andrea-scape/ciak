@@ -331,6 +331,7 @@ class TmdbMetadataService:
             tmdb_id=raw["id"],
             title=raw.get("title", "Unknown"),
             year=year,
+            release_date=raw.get("release_date"),
             overview=raw.get("overview"),
             runtime=raw.get("runtime"),
             rating=raw.get("vote_average"),
