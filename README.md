@@ -18,9 +18,9 @@ The name comes from Italian film slang. When a director yells "Ciak!", the camer
 |---|---|
 | ![Responsive layout](screenshots/compact-layout.png) | ![Stats](screenshots/stats.png) |
 
-| GNOME Theming |
-|---|
-| ![GNOME theming](screenshots/responsive.png) |
+| GNOME Theming | Easy Onboarding Setup |
+|---|---|
+| ![GNOME theming](screenshots/responsive.png) | ![Onbboarding](screenshots/easy_onboarding.png) |
 
 ## Getting started
 
