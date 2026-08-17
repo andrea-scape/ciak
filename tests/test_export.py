@@ -11,6 +11,7 @@ from src.data.export import (
     write_imdb_csv,
     write_json,
 )
+from src.data.local.repository import LocalMediaRepository
 
 
 class ExportDataTest(unittest.TestCase):
@@ -230,7 +231,6 @@ class JsonExportTest(unittest.TestCase):
 class RepositoryExportTest(unittest.TestCase):
     def _make_repo(self, tmpdir):
         db = os.path.join(tmpdir, "test.sqlite")
-        from src.data.local.repository import LocalMediaRepository
         repo = LocalMediaRepository(db)
         repo.initialize()
         return repo
@@ -256,6 +256,92 @@ class RepositoryExportTest(unittest.TestCase):
             self.assertEqual(len(data.ratings), 1)
             self.assertEqual(len(data.collection), 1)
             self.assertEqual(data.watched[0]["title"], "Test")
+
+
+class ExportIntegrationTest(unittest.TestCase):
+    """Test the full pipeline: repo -> ExportData -> file write."""
+
+    def _make_repo_with_data(self, tmpdir):
+        db = os.path.join(tmpdir, "test.sqlite")
+        repo = LocalMediaRepository(db)
+        repo.initialize()
+        conn = repo._ensure_conn()
+        for tmdb_id, title, year, imdb in [
+            (550, "Fight Club", 1999, "tt0137523"),
+            (680, "Pulp Fiction", 1994, "tt0110912"),
+        ]:
+            conn.execute(
+                "INSERT INTO media_items (tmdb_id, media_type, title, year, "
+                "imdb_id, cached_at, updated_at) VALUES (?, 'movie', ?, ?, ?, 0, 0)",
+                (tmdb_id, title, year, imdb),
+            )
+        conn.commit()
+        repo.mark_watched(550, "movie")
+        repo.mark_watched(680, "movie")
+        repo.rate_item(550, "movie", 5)
+        repo.add_to_watchlist(680, "movie")
+        repo.add_to_collection(550, "movie")
+        return repo
+
+    def test_trakt_csv_full_roundtrip(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._make_repo_with_data(d)
+            data = repo.get_export_data()
+            path = os.path.join(d, "export.csv")
+            write_trakt_csv(data, path)
+            with open(path) as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            self.assertEqual(len(rows), 5)
+            titles = {r["Title"] for r in rows}
+            self.assertIn("Fight Club", titles)
+            self.assertIn("Pulp Fiction", titles)
+
+    def test_json_full_roundtrip(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._make_repo_with_data(d)
+            data = repo.get_export_data()
+            path = os.path.join(d, "export.json")
+            write_json(data, path)
+            with open(path) as f:
+                parsed = json.load(f)
+            self.assertEqual(len(parsed["watched"]), 2)
+            self.assertEqual(len(parsed["ratings"]), 1)
+            self.assertEqual(len(parsed["watchlist"]), 1)
+            self.assertEqual(len(parsed["collection"]), 1)
+            self.assertIn("exported_at", parsed)
+
+    def test_export_data_empty_database(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._make_repo_with_data(d)
+            conn = repo._ensure_conn()
+            for table in ("watched_items", "watchlist_items", "ratings", "collection_items"):
+                conn.execute(f"DELETE FROM {table}")
+            conn.commit()
+            data = repo.get_export_data()
+            self.assertEqual(data.watched, [])
+            self.assertEqual(data.watchlist, [])
+            self.assertEqual(data.ratings, [])
+            self.assertEqual(data.collection, [])
+
+    def test_letterboxd_csv_rating_conversion(self):
+        watched = [
+            {"tmdb_id": 1, "media_type": "movie", "title": "A",
+             "year": 2020, "watched_at": 1692000000, "rating": 4},
+            {"tmdb_id": 2, "media_type": "movie", "title": "B",
+             "year": 2021, "watched_at": 1692000000, "rating": 3},
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            write_letterboxd_csv(watched, path)
+            with open(path) as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            self.assertEqual(rows[0]["Rating"], "2.0")
+            self.assertEqual(rows[1]["Rating"], "1.5")
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":
