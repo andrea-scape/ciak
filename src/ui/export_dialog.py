@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import sys
 
 from gi.repository import Gtk, Adw, Gio, GLib
 
@@ -13,6 +15,8 @@ from ..data.export import (
     write_json,
 )
 from .. import threads
+
+log = logging.getLogger(__name__)
 
 
 _FORMATS = [
@@ -48,9 +52,10 @@ _FORMATS = [
 
 
 def _get_main_window() -> Gtk.Window | None:
-    """Get the application's main window via the global application instance."""
+    """Get the application's main window."""
     app = Gio.Application.get_default()
     if app is None:
+        log.warning("No application default")
         return None
     win = app.get_active_window()
     if win is not None:
@@ -63,10 +68,16 @@ def _show_toast_on_main(toast: Adw.Toast) -> None:
     """Show a toast on the main window's ToastOverlay."""
     window = _get_main_window()
     if window is None:
+        log.warning("No main window for toast")
         return
-    overlay = _find_toast_overlay(window)
+    # Prefer the stored _toast_overlay reference (set by MainWindow.set_page)
+    overlay = getattr(window, "_toast_overlay", None)
+    if overlay is None:
+        overlay = _find_toast_overlay(window)
     if overlay is not None:
         overlay.add_toast(toast)
+    else:
+        log.warning("No ToastOverlay found on main window")
 
 
 def _find_toast_overlay(widget: Gtk.Widget) -> Adw.ToastOverlay | None:
@@ -151,31 +162,38 @@ class ExportFormatDialog(Adw.Dialog):
         filters.append(all_filter)
         dialog.set_filters(filters)
 
-        # Use get_native() while this dialog is still open — it returns
-        # the GtkRoot (main window) that Gtk.FileDialog needs.
+        # Get a Gtk.Window for the FileDialog parent.
+        # get_native() works while this Adw.Dialog is still open.
+        # Fall back to the app's active window.
         native = self.get_native()
+        if native is None:
+            native = _get_main_window()
+        log.info("FileDialog parent: %r", native)
         dialog.save(native, None, self._on_file_save_response)
 
     def _on_file_save_response(self, dialog, result):
         try:
             file = dialog.save_finish(result)
-        except GLib.Error:
-            # User cancelled or error — close the format picker
+        except GLib.Error as exc:
+            log.info("FileDialog cancelled or failed: %s", exc.message)
             self.close()
             return
 
-        # get_path() may return None for remote locations; get_uri() works
-        # for local files too. Prefer get_path(), fall back to parse_uri.
+        # get_path() may return None for remote locations; fall back to URI
         path = file.get_path()
         if path is None:
             uri = file.get_uri()
+            log.info("get_path() returned None, URI: %s", uri)
             if uri and uri.startswith("file://"):
                 from urllib.parse import urlparse
                 path = urlparse(uri).path
         if path is None:
+            log.warning("Cannot resolve file path from %s", file.get_uri())
             _show_toast_on_main(Adw.Toast.new("Cannot save to this location"))
             self.close()
             return
+
+        log.info("Export path resolved: %s", path)
 
         # Ensure parent directory exists
         parent_dir = os.path.dirname(path)
@@ -188,17 +206,28 @@ class ExportFormatDialog(Adw.Dialog):
         writer = self._selected_format["writer"]
 
         def _work():
+            log.info("Export worker started for %s", path)
             data = self._repository.get_export_data()
+            log.info(
+                "Export data: watched=%d watchlist=%d ratings=%d collection=%d",
+                len(data.watched), len(data.watchlist),
+                len(data.ratings), len(data.collection),
+            )
             writer(data, path)
+            exists = os.path.exists(path)
+            size = os.path.getsize(path) if exists else 0
+            log.info("Export written: %s exists=%s size=%d", path, exists, size)
             return path
 
         def _done(future):
             try:
                 saved_path = future.result()
+                log.info("Export succeeded: %s", saved_path)
                 _show_toast_on_main(
-                    Adw.Toast.new(f"Exported to {saved_path}")
+                    Adw.Toast.new(f"Exported to {os.path.basename(saved_path)}")
                 )
             except Exception as exc:
+                log.error("Export failed: %s", exc, exc_info=True)
                 _show_toast_on_main(
                     Adw.Toast.new(f"Export failed: {exc}")
                 )

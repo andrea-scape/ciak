@@ -48,7 +48,9 @@ class MainWindow(Adw.ApplicationWindow):
         self._apply_animations_pref()
 
     def set_page(self, widget):
-        Adw.ApplicationWindow.set_content(self, widget)
+        self._toast_overlay = Adw.ToastOverlay()
+        self._toast_overlay.set_child(widget)
+        Adw.ApplicationWindow.set_content(self, self._toast_overlay)
 
     def _on_close(self, *args):
         width, height = self.get_default_size()
