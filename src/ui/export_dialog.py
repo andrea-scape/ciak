@@ -5,7 +5,6 @@ from __future__ import annotations
 from gi.repository import Gtk, Adw, Gio, GLib
 
 from ..data.export import (
-    ExportData,
     write_trakt_csv,
     write_letterboxd_csv,
     write_imdb_csv,
@@ -20,7 +19,6 @@ _FORMATS = [
         "label": "Trakt CSV",
         "subtitle": "Compatible with Trakt import",
         "extension": ".csv",
-        "mime": "text/csv",
         "writer": write_trakt_csv,
     },
     {
@@ -28,7 +26,6 @@ _FORMATS = [
         "label": "Letterboxd CSV",
         "subtitle": "Compatible with Letterboxd import",
         "extension": ".csv",
-        "mime": "text/csv",
         "writer": write_letterboxd_csv,
     },
     {
@@ -36,7 +33,6 @@ _FORMATS = [
         "label": "IMDb CSV",
         "subtitle": "Compatible with IMDb list import",
         "extension": ".csv",
-        "mime": "text/csv",
         "writer": write_imdb_csv,
     },
     {
@@ -44,7 +40,6 @@ _FORMATS = [
         "label": "JSON",
         "subtitle": "Full structured data dump",
         "extension": ".json",
-        "mime": "application/json",
         "writer": write_json,
     },
 ]
@@ -81,7 +76,6 @@ class ExportFormatDialog(Adw.Dialog):
             row.set_subtitle(fmt["subtitle"])
             row.set_activatable(True)
             row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
-            row._format_id = fmt["id"]
             row.connect("activated", self._on_format_selected, fmt)
             group.add(row)
 
