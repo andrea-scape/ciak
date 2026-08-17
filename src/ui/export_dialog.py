@@ -54,6 +54,7 @@ class ExportFormatDialog(Adw.Dialog):
         self.set_content_width(400)
         self.set_presentation_mode(Adw.DialogPresentationMode.AUTOMATIC)
         self._repository = repository
+        self._parent = parent
         self._selected_format = None
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -114,7 +115,7 @@ class ExportFormatDialog(Adw.Dialog):
         filters.append(all_filter)
         dialog.set_filters(filters)
 
-        dialog.save(self, None, self._on_file_save_response)
+        dialog.save(self._parent, None, self._on_file_save_response)
 
     def _on_file_save_response(self, dialog, result):
         try:
@@ -147,7 +148,7 @@ class ExportFormatDialog(Adw.Dialog):
 
     def _show_toast(self, toast: Adw.Toast):
         """Find the nearest ToastOverlay ancestor and present a toast."""
-        widget = self.get_parent()
+        widget = self._parent
         while widget is not None:
             if isinstance(widget, Adw.ToastOverlay):
                 widget.add_toast(toast)
