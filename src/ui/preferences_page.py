@@ -9,6 +9,7 @@ import threading
 from .. import poster_cache
 from .. import config
 from ..theme import apply_theme
+from .export_dialog import show_export_dialog
 
 THEME_VALUES = ["light", "dark", "default"]
 
@@ -360,6 +361,21 @@ class PreferencesPage(Adw.PreferencesDialog):
         delete_db_row.add_suffix(delete_btn)
         data_group.add(delete_db_row)
 
+        export_row = Adw.ActionRow()
+        export_row.set_title("Export Data")
+        export_row.set_subtitle(
+            "Export your watchlist, watched history, ratings, and "
+            "collection as CSV or JSON"
+        )
+        export_row.set_activatable(False)
+        export_btn = Gtk.Button(icon_name="document-send-symbolic")
+        export_btn.set_tooltip_text("Export")
+        export_btn.set_valign(Gtk.Align.CENTER)
+        export_btn.add_css_class("flat")
+        export_btn.connect("clicked", self._on_export_clicked)
+        export_row.add_suffix(export_btn)
+        data_group.add(export_row)
+
     def _on_cache_size_changed(self, row, _gparam):
         self._settings.set_int("cache-max-size-mb", int(row.get_value()))
         self.advanced_banner.set_revealed(True)
@@ -435,6 +451,11 @@ class PreferencesPage(Adw.PreferencesDialog):
     #
     # Handlers
     #
+
+    def _on_export_clicked(self, _btn):
+        from ..main import CiakApp
+        app = CiakApp.get_default()
+        show_export_dialog(self, app._user_repo)
 
     def _on_sidebar_mode_changed(self, row, _gparam):
         value = "collapse" if row.get_selected() == 0 else "remember"
