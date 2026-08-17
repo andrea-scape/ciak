@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from gi.repository import Gtk, Adw, Gio, GLib
 
 from ..data.export import (
@@ -162,10 +164,23 @@ class ExportFormatDialog(Adw.Dialog):
             self.close()
             return
 
+        # get_path() may return None for remote locations; get_uri() works
+        # for local files too. Prefer get_path(), fall back to parse_uri.
         path = file.get_path()
         if path is None:
+            uri = file.get_uri()
+            if uri and uri.startswith("file://"):
+                from urllib.parse import urlparse
+                path = urlparse(uri).path
+        if path is None:
+            _show_toast_on_main(Adw.Toast.new("Cannot save to this location"))
             self.close()
             return
+
+        # Ensure parent directory exists
+        parent_dir = os.path.dirname(path)
+        if parent_dir and not os.path.isdir(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
 
         # Close the format picker now that we have the save path
         self.close()
