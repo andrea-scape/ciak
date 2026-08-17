@@ -45,6 +45,43 @@ _FORMATS = [
 ]
 
 
+def _get_main_window() -> Gtk.Window | None:
+    """Get the application's main window via the global application instance."""
+    app = Gio.Application.get_default()
+    if app is None:
+        return None
+    win = app.get_active_window()
+    if win is not None:
+        return win
+    windows = app.get_windows()
+    return windows[0] if windows else None
+
+
+def _show_toast_on_main(toast: Adw.Toast) -> None:
+    """Show a toast on the main window's ToastOverlay."""
+    window = _get_main_window()
+    if window is None:
+        return
+    overlay = _find_toast_overlay(window)
+    if overlay is not None:
+        overlay.add_toast(toast)
+
+
+def _find_toast_overlay(widget: Gtk.Widget) -> Adw.ToastOverlay | None:
+    """Walk the widget tree to find a ToastOverlay."""
+    if isinstance(widget, Adw.ToastOverlay):
+        return widget
+    if not hasattr(widget, "get_first_child"):
+        return None
+    child = widget.get_first_child()
+    while child is not None:
+        result = _find_toast_overlay(child)
+        if result is not None:
+            return result
+        child = child.get_next_sibling()
+    return None
+
+
 class ExportFormatDialog(Adw.Dialog):
     """Modal dialog that lets the user choose an export format."""
 
@@ -54,8 +91,6 @@ class ExportFormatDialog(Adw.Dialog):
         self.set_content_width(400)
         self.set_presentation_mode(Adw.DialogPresentationMode.AUTO)
         self._repository = repository
-        self._parent = parent
-        self._window = self._find_window(parent)
         self._selected_format = None
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -91,21 +126,8 @@ class ExportFormatDialog(Adw.Dialog):
         self.set_child(box)
         self.present(parent)
 
-    @staticmethod
-    def _find_window(widget: Gtk.Widget) -> Gtk.Window | None:
-        """Walk up the widget tree to find the nearest Gtk.Window."""
-        while widget is not None:
-            if isinstance(widget, Gtk.Window):
-                return widget
-            parent = widget.get_parent()
-            if parent is widget:
-                break
-            widget = parent
-        return None
-
     def _on_format_selected(self, _row, fmt):
         self._selected_format = fmt
-        self.close()
         self._open_file_save_dialog()
 
     def _open_file_save_dialog(self):
@@ -127,17 +149,26 @@ class ExportFormatDialog(Adw.Dialog):
         filters.append(all_filter)
         dialog.set_filters(filters)
 
-        dialog.save(self._window, None, self._on_file_save_response)
+        # Use get_native() while this dialog is still open — it returns
+        # the GtkRoot (main window) that Gtk.FileDialog needs.
+        native = self.get_native()
+        dialog.save(native, None, self._on_file_save_response)
 
     def _on_file_save_response(self, dialog, result):
         try:
             file = dialog.save_finish(result)
         except GLib.Error:
-            return  # user cancelled
+            # User cancelled or error — close the format picker
+            self.close()
+            return
 
         path = file.get_path()
         if path is None:
+            self.close()
             return
+
+        # Close the format picker now that we have the save path
+        self.close()
 
         writer = self._selected_format["writer"]
 
@@ -149,26 +180,16 @@ class ExportFormatDialog(Adw.Dialog):
         def _done(future):
             try:
                 saved_path = future.result()
-                toast = Adw.Toast.new(f"Exported to {saved_path}")
-                self._show_toast(toast)
+                _show_toast_on_main(
+                    Adw.Toast.new(f"Exported to {saved_path}")
+                )
             except Exception as exc:
-                toast = Adw.Toast.new(f"Export failed: {exc}")
-                self._show_toast(toast)
+                _show_toast_on_main(
+                    Adw.Toast.new(f"Export failed: {exc}")
+                )
 
         future = threads.submit(_work)
         future.add_done_callback(lambda f: GLib.idle_add(_done, f))
-
-    def _show_toast(self, toast: Adw.Toast):
-        """Find the nearest ToastOverlay ancestor and present a toast."""
-        widget = self._window
-        while widget is not None:
-            if isinstance(widget, Adw.ToastOverlay):
-                widget.add_toast(toast)
-                return
-            parent = widget.get_parent()
-            if parent is widget:
-                break
-            widget = parent
 
 
 def show_export_dialog(parent: Gtk.Widget, repository) -> None:
