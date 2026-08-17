@@ -139,6 +139,15 @@ class MetadataCache:
             conn.execute(
                 "ALTER TABLE media_items ADD COLUMN release_date TEXT"
             )
+            conn.execute(
+                "UPDATE media_items SET cached_at = 0"
+            )
+        elif conn.execute(
+            "SELECT 1 FROM media_items WHERE release_date IS NULL LIMIT 1"
+        ).fetchone():
+            conn.execute(
+                "UPDATE media_items SET cached_at = 0"
+            )
         if "genre_ids" not in cols:
             conn.execute(
                 "ALTER TABLE media_items ADD COLUMN genre_ids TEXT"
