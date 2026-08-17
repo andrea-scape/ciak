@@ -55,6 +55,7 @@ class ExportFormatDialog(Adw.Dialog):
         self.set_presentation_mode(Adw.DialogPresentationMode.AUTO)
         self._repository = repository
         self._parent = parent
+        self._window = self._find_window(parent)
         self._selected_format = None
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -90,6 +91,18 @@ class ExportFormatDialog(Adw.Dialog):
         self.set_child(box)
         self.present(parent)
 
+    @staticmethod
+    def _find_window(widget: Gtk.Widget) -> Gtk.Window | None:
+        """Walk up the widget tree to find the nearest Gtk.Window."""
+        while widget is not None:
+            if isinstance(widget, Gtk.Window):
+                return widget
+            parent = widget.get_parent()
+            if parent is widget:
+                break
+            widget = parent
+        return None
+
     def _on_format_selected(self, _row, fmt):
         self._selected_format = fmt
         self.close()
@@ -114,7 +127,7 @@ class ExportFormatDialog(Adw.Dialog):
         filters.append(all_filter)
         dialog.set_filters(filters)
 
-        dialog.save(self._parent, None, self._on_file_save_response)
+        dialog.save(self._window, None, self._on_file_save_response)
 
     def _on_file_save_response(self, dialog, result):
         try:
@@ -147,12 +160,15 @@ class ExportFormatDialog(Adw.Dialog):
 
     def _show_toast(self, toast: Adw.Toast):
         """Find the nearest ToastOverlay ancestor and present a toast."""
-        widget = self._parent
+        widget = self._window
         while widget is not None:
             if isinstance(widget, Adw.ToastOverlay):
                 widget.add_toast(toast)
                 return
-            widget = widget.get_parent() if hasattr(widget, "get_parent") else None
+            parent = widget.get_parent()
+            if parent is widget:
+                break
+            widget = parent
 
 
 def show_export_dialog(parent: Gtk.Widget, repository) -> None:
