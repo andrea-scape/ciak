@@ -69,7 +69,6 @@ class ExportFormatDialog(Adw.Dialog):
         box.append(title_label)
 
         group = Adw.PreferencesGroup()
-        group.set_selection_mode(Gtk.SelectionMode.SINGLE)
 
         for fmt in _FORMATS:
             row = Adw.ActionRow()
