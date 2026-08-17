@@ -10,19 +10,17 @@ The name comes from Italian film slang. When a director yells "Ciak!", the camer
 
 ## Screenshots
 
-| Search | Detail |
+| Light & Dark | Detail |
 |---|---|
-| ![Search](screenshots/search.png) | ![Detail](screenshots/detail.png) |
+| ![Light and dark theme](screenshots/light-dark.png) | ![Detail page](screenshots/detail.png) |
 
-| Watchlist | History |
+| Responsive Layout | Stats |
 |---|---|
-| ![Watchlist](screenshots/watchlist.png) | ![History](screenshots/history.png) |
+| ![Responsive layout](screenshots/compact-layout.png) | ![Stats](screenshots/stats.png) |
 
-| Profile |
+| GNOME Theming |
 |---|
-| ![Profile](screenshots/profile.png) |
-
-<sub>Ciak respects the system accent color. These were taken with [ChromaLeon](https://extensions.gnome.org/extension/10070/user-accent-colors/) enabled.</sub>
+| ![GNOME theming](screenshots/responsive.png) |
 
 ## Getting started
 

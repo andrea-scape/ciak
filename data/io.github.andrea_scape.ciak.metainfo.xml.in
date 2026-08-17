@@ -31,24 +31,24 @@
   </categories>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/andrea-scape/ciak/v0.1.2/screenshots/search.png</image>
-      <caption>Search for movies and TV shows</caption>
+      <image>https://raw.githubusercontent.com/andrea-scape/ciak/main/screenshots/light-dark.png</image>
+      <caption>Light and dark theme support</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/andrea-scape/ciak/v0.1.2/screenshots/watchlist.png</image>
-      <caption>Your watchlist at a glance</caption>
+      <image>https://raw.githubusercontent.com/andrea-scape/ciak/main/screenshots/detail.png</image>
+      <caption>Movie and show details with release dates</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/andrea-scape/ciak/v0.1.2/screenshots/history.png</image>
-      <caption>Watched history and ratings</caption>
+      <image>https://raw.githubusercontent.com/andrea-scape/ciak/main/screenshots/compact-layout.png</image>
+      <caption>Responsive layout adapts to window size</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/andrea-scape/ciak/v0.1.2/screenshots/profile.png</image>
-      <caption>Your profile and stats</caption>
+      <image>https://raw.githubusercontent.com/andrea-scape/ciak/main/screenshots/stats.png</image>
+      <caption>Your watch stats and reviews</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/andrea-scape/ciak/v0.1.2/screenshots/detail.png</image>
-      <caption>Movie and show details</caption>
+      <image>https://raw.githubusercontent.com/andrea-scape/ciak/main/screenshots/responsive.png</image>
+      <caption>Respects GNOME theming customizations</caption>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1">
