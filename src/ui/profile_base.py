@@ -2,6 +2,7 @@
 
 import getpass
 import sqlite3
+import cairo
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -92,7 +93,7 @@ class ProfileBase(Gtk.Box):
         content.append(self._build_section("Watchlist", [
             ("video-x-generic-symbolic", "Movies", "wl_movies_label"),
             ("tv-symbolic", "Shows", "wl_shows_label"),
-            ("media-playback-start-symbolic", "Episodes to watch", "wl_episodes_label"),
+            ("media-playback-start-symbolic", "Episodes", "wl_episodes_label"),
             ("alarm-symbolic", "Watch time", "wl_runtime_label"),
         ]))
 
@@ -124,13 +125,44 @@ class ProfileBase(Gtk.Box):
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
         header.set_halign(Gtk.Align.CENTER)
         header.set_margin_bottom(36)
-        avatar = Adw.Avatar.new(84, None, True)
-        avatar.set_text("U")
-        avatar.add_css_class("profile-avatar")
+        username = getpass.getuser() or "Profile"
+        avatar = Gtk.DrawingArea()
+        avatar.set_size_request(84, 84)
+        avatar.set_halign(Gtk.Align.CENTER)
+        avatar.set_valign(Gtk.Align.CENTER)
+        avatar.add_css_class("profile-initial")
+        username_char = username[0].upper()
+
+        def _draw(widget, cr, width, height):
+            import math
+            r = min(width, height) / 2
+            cx, cy = width / 2, height / 2
+            style_ctx = widget.get_style_context()
+            ok, col = style_ctx.lookup_color("accent_bg_color")
+            r_c, g_c, b_c = (col.red, col.green, col.blue) if ok else (0.21, 0.52, 0.89)
+            grad = cairo.RadialGradient(cx - r * 0.3, cy - r * 0.3, 0, cx, cy, r)
+            grad.add_color_stop_rgba(0, r_c, g_c, b_c, 1.0)
+            grad.add_color_stop_rgba(1, r_c, g_c, b_c, 0.6)
+            cr.set_source(grad)
+            cr.arc(cx, cy, r, 0, 2 * math.pi)
+            cr.fill_preserve()
+            cr.clip()
+            cr.set_source_rgba(1, 1, 1, 1)
+            cr.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+            cr.set_font_size(32)
+            ext = cr.text_extents(username_char)
+            cr.move_to(cx - ext.width / 2 - ext.x_bearing,
+                       cy - ext.height / 2 - ext.y_bearing)
+            cr.show_text(username_char)
+            return True
+
+        avatar.set_draw_func(_draw)
+        avatar._initial_char = username_char
+        self.profile_avatar = avatar
         header.append(avatar)
         name_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         name_box.set_valign(Gtk.Align.CENTER)
-        name = Gtk.Label(label=getpass.getuser() or "Profile")
+        name = Gtk.Label(label=username)
         name.add_css_class("title-2")
         name.set_halign(Gtk.Align.START)
         name_box.append(name)

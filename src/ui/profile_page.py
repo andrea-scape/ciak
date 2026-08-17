@@ -42,12 +42,11 @@ class ProfileGallery(ProfileBase):
         return section
 
     def _populate_reviewed(self, rated):
-        self._clear_reviewed(self.reviewed_flowbox)
-
         if not rated:
-            from .profile_base import _make_empty_label
-            self.reviewed_flowbox.append(_make_empty_label())
+            self.reviewed_section.set_visible(False)
             return
+        self.reviewed_section.set_visible(True)
+        self._clear_reviewed(self.reviewed_flowbox)
 
         reviewed_items = []
         for item in rated:
