@@ -52,6 +52,7 @@ class MainPage(Adw.Bin):
         split_view.set_max_sidebar_width(208)
 
         root_bin = Adw.BreakpointBin()
+        root_bin.set_size_request(750, 750)
         root_bin.set_child(split_view)
         self._root_bin = root_bin
 
@@ -470,6 +471,7 @@ class MainPage(Adw.Bin):
         self.content_stack.set_hexpand(True)
         self.content_stack.set_vexpand(True)
         self._content_bin = Adw.BreakpointBin()
+        self._content_bin.set_size_request(320, 300)
         self._content_bin.set_hexpand(True)
         self._content_bin.set_vexpand(True)
         self._content_bin.set_child(self.content_stack)
@@ -552,10 +554,10 @@ class MainPage(Adw.Bin):
                         self._sync_toggle(page._mode)
 
             newly_visible = [w for w in widgets if w.get_visible()]
-            fade_in_group(newly_visible, 200)
+            fade_in_group(newly_visible, 150)
 
         if currently_visible:
-            fade_out_group(currently_visible, 150, _apply_and_fade_in)
+            fade_out_group(currently_visible, 112, _apply_and_fade_in)
         else:
             _apply_and_fade_in()
         return False
@@ -583,10 +585,10 @@ class MainPage(Adw.Bin):
             self.back_btn.set_visible(True)
 
             newly_visible = [w for w in widgets if w.get_visible()]
-            fade_in_group(newly_visible, 200)
+            fade_in_group(newly_visible, 150)
 
         if currently_visible:
-            fade_out_group(currently_visible, 150, _apply_and_fade_in)
+            fade_out_group(currently_visible, 112, _apply_and_fade_in)
         else:
             _apply_and_fade_in()
         return False
@@ -609,7 +611,7 @@ class MainPage(Adw.Bin):
             self.content_stack.add_titled(self._pages[page_id], page_id, PAGE_TITLES.get(page_id, page_id))
 
         self.content_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        self.content_stack.set_transition_duration(300)
+        self.content_stack.set_transition_duration(225)
         self.content_stack.set_visible_child_name(page_id)
         self._refresh_if_stale(page_id)
 
