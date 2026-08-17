@@ -10,6 +10,7 @@ import calendar as cal_mod
 import threading
 
 from ..domain.exceptions import NetworkError
+from ..domain.models import Episode
 from .poster import create_poster, load_poster
 
 MONTHS_SHORT = [
@@ -195,7 +196,6 @@ class CalendarPage(Gtk.Box):
                         for e in episodes
                     )
                     if not already_seen:
-                        from ...domain.models import Episode
                         next_ep = Episode(
                             tmdb_id=0,
                             show_tmdb_id=tmdb_id,

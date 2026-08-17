@@ -186,7 +186,7 @@ class PreferencesPage(Adw.PreferencesDialog):
         return group
 
     def _on_donate_clicked(self, _btn):
-        Gio.App_info_launch_default_for_uri("https://buymeacoffee.com/ascape", None)
+        Gio.app_info_launch_default_for_uri("https://buymeacoffee.com/ascape", None)
 
     #
     # Keyboard Shortcuts
@@ -267,7 +267,7 @@ class PreferencesPage(Adw.PreferencesDialog):
         link_row.set_activatable(True)
         link_row.connect(
             "activated",
-            lambda _r: Gio.App_info_launch_default_for_uri(
+            lambda _r: Gio.app_info_launch_default_for_uri(
                 "https://www.themoviedb.org/settings/api", None
             ),
         )
@@ -516,7 +516,7 @@ class PreferencesPage(Adw.PreferencesDialog):
         donate_row.set_activatable(True)
         donate_row.connect(
             "activated",
-            lambda _r: Gio.App_info_launch_default_for_uri(
+            lambda _r: Gio.app_info_launch_default_for_uri(
                 "https://buymeacoffee.com/ascape", None
             ),
         )
@@ -530,7 +530,7 @@ class PreferencesPage(Adw.PreferencesDialog):
         website_row.set_activatable(True)
         website_row.connect(
             "activated",
-            lambda _r: Gio.App_info_launch_default_for_uri(
+            lambda _r: Gio.app_info_launch_default_for_uri(
                 "https://github.com/andrea-scape/ciak", None
             ),
         )
@@ -544,7 +544,7 @@ class PreferencesPage(Adw.PreferencesDialog):
         powered_row.set_activatable(True)
         powered_row.connect(
             "activated",
-            lambda _r: Gio.App_info_launch_default_for_uri(
+            lambda _r: Gio.app_info_launch_default_for_uri(
                 "https://www.themoviedb.org", None
             ),
         )
