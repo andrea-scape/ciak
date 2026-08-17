@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.5 - 2026-08-16
+
+- Marking a title as watched opens the rating dialog right away (skipped when already rated)
+- Movie details show the precise release date instead of just the year
+- Upcoming episodes show their airing date on the details page
+- Movies and shows that have not been released yet cannot be marked as watched or rated
+- Development builds are named "Ciak (Development)" in the app grid
+
+## 0.1.4 - 2026-08-16
+
+- Responsive detail page: hero buttons wrap, the poster stacks on top on narrow windows, and the sidebar collapses to an overlay with icon-only filters under 900px
+- Posters keep their fixed 2:3 shape when the detail hero stacks
+- Details page shows budget and revenue, and friendlier runtimes
+- Director and showrunners are listed at the top of the cast
+- Rating a title also marks it as watched
+- Minimum window size reduced to 750x750
+
 ## 0.1.3 - 2026-08-11
 
 - Development builds show a "Development" pill (terminal icon + label) at the

@@ -1,5 +1,6 @@
 conf = configuration_data()
 conf.set('APP_ID', app_id)
+conf.set('APP_VERSION', meson.project_version())
 
 config_py = configure_file(
   input: 'config.py.in',

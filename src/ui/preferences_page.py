@@ -388,8 +388,7 @@ class PreferencesPage(Adw.PreferencesDialog):
             "Delete Local Database?",
             "This permanently erases ALL local data: the metadata cache, "
             "poster images, watchlist, watched history, ratings, and "
-            "collection. There is no cloud sync, so this cannot be "
-            "recovered. This action cannot be undone.",
+            "collection. This action cannot be undone.",
         )
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("delete", "Delete")
@@ -492,7 +491,7 @@ class PreferencesPage(Adw.PreferencesDialog):
         name.set_margin_top(12)
         header.append(name)
 
-        version = Gtk.Label(label="Version 0.1.1")
+        version = Gtk.Label(label=f"Version {config.APP_VERSION}")
         version.add_css_class("dim-label")
         version.set_halign(Gtk.Align.CENTER)
         header.append(version)
