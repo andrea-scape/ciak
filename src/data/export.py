@@ -67,9 +67,7 @@ def write_trakt_csv(data: ExportData | list[dict], path: str) -> None:
         for item in data.watchlist:
             rows.append(_trakt_row(item, "Watchlist"))
         for item in data.ratings:
-            row = _trakt_row(item, "Ratings")
-            row["Rating"] = item.get("rating", "")
-            rows.append(row)
+            rows.append(_trakt_row(item, "Ratings"))
         for item in data.collection:
             rows.append(_trakt_row(item, "Collection"))
     else:
@@ -105,7 +103,7 @@ def _letterboxd_row(item: dict) -> dict:
 
 
 def _rating_to_letterboxd(rating: int | None) -> str:
-    """Convert Ciak 1-5 rating to Letterboxd 0.5-5.0 scale string."""
+    """Convert rating to Letterboxd half-star scale string."""
     if rating is None:
         return ""
     return str(rating / 2)
