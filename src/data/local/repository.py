@@ -320,6 +320,16 @@ class LocalMediaRepository:
         rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
+    def get_export_data(self) -> "ExportData":
+        """Gather all user data into an ExportData container for export."""
+        from ..export import ExportData
+        return ExportData(
+            watched=self.get_watched_list(),
+            watchlist=self.get_watchlist(),
+            ratings=self.get_ratings(),
+            collection=self.get_collection(),
+        )
+
     # ------------------------------------------------------------------
     # Stats
     # ------------------------------------------------------------------

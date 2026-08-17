@@ -227,5 +227,36 @@ class JsonExportTest(unittest.TestCase):
             os.unlink(path)
 
 
+class RepositoryExportTest(unittest.TestCase):
+    def _make_repo(self, tmpdir):
+        db = os.path.join(tmpdir, "test.sqlite")
+        from src.data.local.repository import LocalMediaRepository
+        repo = LocalMediaRepository(db)
+        repo.initialize()
+        return repo
+
+    def test_get_export_data_populates_all_fields(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._make_repo(d)
+            conn = repo._ensure_conn()
+            conn.execute(
+                "INSERT INTO media_items (tmdb_id, media_type, title, year, "
+                "cached_at, updated_at) VALUES (1, 'movie', 'Test', 2020, 0, 0)"
+            )
+            conn.commit()
+            repo.mark_watched(1, "movie")
+            repo.add_to_watchlist(1, "movie")
+            repo.rate_item(1, "movie", 4)
+            repo.add_to_collection(1, "movie")
+
+            data = repo.get_export_data()
+            self.assertIsInstance(data, ExportData)
+            self.assertEqual(len(data.watched), 1)
+            self.assertEqual(len(data.watchlist), 1)
+            self.assertEqual(len(data.ratings), 1)
+            self.assertEqual(len(data.collection), 1)
+            self.assertEqual(data.watched[0]["title"], "Test")
+
+
 if __name__ == "__main__":
     unittest.main()
