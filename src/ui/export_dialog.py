@@ -52,7 +52,7 @@ class ExportFormatDialog(Adw.Dialog):
         super().__init__()
         self.set_title("Export Data")
         self.set_content_width(400)
-        self.set_presentation_mode(Adw.DialogPresentationMode.AUTOMATIC)
+        self.set_presentation_mode(Adw.DialogPresentationMode.AUTO)
         self._repository = repository
         self._parent = parent
         self._selected_format = None
