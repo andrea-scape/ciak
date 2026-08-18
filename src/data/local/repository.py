@@ -568,9 +568,16 @@ class LocalMediaRepository:
                 show_tmdb_id = row.get("show_tmdb_id")
                 season_number = row.get("season_number")
                 episode_number = row.get("episode_number")
-                self._upsert_media_meta(
-                    conn, tmdb_id, media_type, title, year, imdb_id
-                )
+                # Episodes can't live in media_items (only movie/show), so
+                # cache the parent show there instead.
+                if media_type == "episode" and show_tmdb_id:
+                    self._upsert_media_meta(
+                        conn, show_tmdb_id, "show", title, year, imdb_id
+                    )
+                else:
+                    self._upsert_media_meta(
+                        conn, tmdb_id, media_type, title, year, imdb_id
+                    )
                 conn.execute(
                     "INSERT OR REPLACE INTO watched_items "
                     "(tmdb_id, media_type, show_tmdb_id, season_number, "

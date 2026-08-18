@@ -78,9 +78,10 @@ class ImportPreviewDialog(Adw.Dialog):
         self._file_dialog = Gtk.FileDialog()
         self._file_dialog.set_title("Choose a file to import")
         filter_csv = Gtk.FileFilter()
-        filter_csv.set_name("CSV or JSON")
+        filter_csv.set_name("CSV, JSON or Trakt export")
         filter_csv.add_pattern("*.csv")
         filter_csv.add_pattern("*.json")
+        filter_csv.add_pattern("*.zip")
         filters = Gio.ListStore.new(Gtk.FileFilter)
         filters.append(filter_csv)
         all_filter = Gtk.FileFilter()
@@ -259,6 +260,11 @@ class ImportPreviewDialog(Adw.Dialog):
         text_box.append(title)
 
         subtitle_parts = []
+        if result.item.season_number is not None:
+            subtitle_parts.append(
+                f"S{result.item.season_number:02d}"
+                f"E{result.item.episode_number or 0:02d}"
+            )
         if result.item.year:
             subtitle_parts.append(str(result.item.year))
         if result.tmdb_id:
@@ -326,6 +332,12 @@ class ImportPreviewDialog(Adw.Dialog):
                 "year": item.year,
                 "imdb_id": item.imdb_id,
             }
+            if item.show_tmdb_id:
+                base["show_tmdb_id"] = item.show_tmdb_id
+            if item.season_number is not None:
+                base["season_number"] = item.season_number
+            if item.episode_number is not None:
+                base["episode_number"] = item.episode_number
             ts = date_to_ts(item.watched_date) or None
             target = item.target
             if target == "watchlist":

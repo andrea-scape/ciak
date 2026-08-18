@@ -2,14 +2,17 @@ import json
 import os
 import tempfile
 import unittest
+import zipfile
 
 from src.data.importers import (
     GenericJSON,
     IMDbCSV,
     ImportItem,
+    ImportParseError,
     LetterboxdCSV,
     Matcher,
     TraktCSV,
+    TraktExport,
     date_to_ts,
     select_parser,
 )
@@ -173,6 +176,254 @@ class SelectParserTest(unittest.TestCase):
             self.assertIs(select_parser(diary), LetterboxdCSV)
             self.assertIs(select_parser(trakt), TraktCSV)
 
+    def test_zip_and_directory_select_trakt(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIs(select_parser(os.path.join(d, "x.zip")), TraktExport)
+            self.assertIs(select_parser(d), TraktExport)
+
+
+class TraktExportTest(unittest.TestCase):
+    HISTORY = [
+        {
+            "id": 1,
+            "watched_at": "2026-08-17T18:14:00.000Z",
+            "action": "watch",
+            "type": "movie",
+            "movie": {
+                "ids": {"imdb": "tt30057084", "tmdb": 1097549},
+                "year": 2024,
+                "title": "Babygirl",
+            },
+        },
+        {
+            "id": 2,
+            "watched_at": "2026-08-16T21:00:00.000Z",
+            "action": "scrobble",
+            "type": "episode",
+            "episode": {
+                "ids": {"imdb": "tt1", "tmdb": 5001},
+                "number": 3,
+                "season": 2,
+                "title": "Pilot",
+            },
+            "show": {
+                "ids": {"imdb": "tt259", "tmdb": 259265},
+                "year": 2024,
+                "title": "Something Very Bad",
+            },
+        },
+    ]
+
+    @staticmethod
+    def _write_export(d, include_history=True, include_files=True):
+        files = {}
+        if include_history:
+            files["watched-history-1.json"] = json.dumps(TraktExportTest.HISTORY)
+        if include_files:
+            files["watched-movies.json"] = json.dumps([
+                {
+                    "last_watched_at": "2026-08-01T10:00:00.000Z",
+                    "movie": {
+                        "ids": {"imdb": "tt2", "tmdb": 680},
+                        "year": 1994,
+                        "title": "Pulp Fiction",
+                    },
+                    "plays": 1,
+                }
+            ])
+            files["ratings-movies.json"] = json.dumps([
+                {
+                    "rated_at": "2026-05-09T22:33:46.000Z",
+                    "rating": 8,
+                    "movie": {
+                        "ids": {"imdb": "tt30057084", "tmdb": 1097549},
+                        "year": 2024,
+                        "title": "Babygirl",
+                    },
+                }
+            ])
+            files["ratings-shows.json"] = json.dumps([
+                {
+                    "rated_at": "2026-01-01T00:00:00.000Z",
+                    "rating": 9,
+                    "show": {
+                        "ids": {"imdb": "tt259", "tmdb": 259265},
+                        "year": 2024,
+                        "title": "Something Very Bad",
+                    },
+                }
+            ])
+            files["ratings-seasons.json"] = json.dumps([
+                {
+                    "rated_at": "2026-05-09T22:33:46.000Z",
+                    "rating": 8,
+                    "season": {"number": 1},
+                    "show": {
+                        "ids": {"imdb": "tt259", "tmdb": 259265},
+                        "year": 2024,
+                        "title": "Something Very Bad",
+                    },
+                }
+            ])
+            files["lists-watchlist.json"] = json.dumps([
+                {
+                    "listed_at": "2026-07-01T00:00:00.000Z",
+                    "rank": 1,
+                    "movie": {
+                        "ids": {"imdb": "tt2", "tmdb": 680},
+                        "year": 1994,
+                        "title": "Pulp Fiction",
+                    },
+                }
+            ])
+        for name, content in files.items():
+            _write(os.path.join(d, name), content)
+
+    def _parse_dir(self, **kwargs):
+        with tempfile.TemporaryDirectory() as d:
+            self._write_export(d, **kwargs)
+            return TraktExport.parse(d)
+
+    def test_parses_history_precisely(self):
+        items = self._parse_dir()
+        watched = [i for i in items if i.target == "watched"]
+        self.assertEqual(len(watched), 2)
+
+        movie = watched[0]
+        self.assertEqual(movie.title, "Babygirl")
+        self.assertEqual(movie.tmdb_id, 1097549)
+        self.assertEqual(movie.imdb_id, "tt30057084")
+        self.assertEqual(movie.media_type, "movie")
+        self.assertEqual(movie.watched_date, "2026-08-17")
+
+        episode = watched[1]
+        self.assertEqual(episode.title, "Something Very Bad")
+        self.assertEqual(episode.tmdb_id, 5001)
+        self.assertEqual(episode.show_tmdb_id, 259265)
+        self.assertEqual(episode.season_number, 2)
+        self.assertEqual(episode.episode_number, 3)
+        self.assertEqual(episode.media_type, "episode")
+        self.assertEqual(episode.source, "Pilot")
+        self.assertEqual(episode.watched_date, "2026-08-16")
+
+    def test_history_wins_over_watched_files(self):
+        items = self._parse_dir()
+        titles = [i.title for i in items if i.target == "watched"]
+        self.assertEqual(titles, ["Babygirl", "Something Very Bad"])
+
+    def test_watched_files_used_without_history(self):
+        items = self._parse_dir(include_history=False)
+        watched = [i for i in items if i.target == "watched"]
+        self.assertEqual(len(watched), 1)
+        self.assertEqual(watched[0].title, "Pulp Fiction")
+        self.assertEqual(watched[0].tmdb_id, 680)
+        self.assertEqual(watched[0].watched_date, "2026-08-01")
+
+    def test_ratings_and_watchlist(self):
+        items = self._parse_dir()
+        ratings = [i for i in items if i.target == "ratings"]
+        watchlist = [i for i in items if i.target == "watchlist"]
+        self.assertEqual(len(ratings), 2)
+        self.assertEqual(len(watchlist), 1)
+        movie_rating = next(i for i in ratings if i.title == "Babygirl")
+        self.assertEqual(movie_rating.rating, 8)
+        self.assertEqual(movie_rating.watched_date, "2026-05-09")
+        show_rating = next(i for i in ratings if i.title == "Something Very Bad")
+        self.assertEqual(show_rating.rating, 9)
+        self.assertEqual(show_rating.media_type, "show")
+        self.assertEqual(watchlist[0].tmdb_id, 680)
+        self.assertEqual(watchlist[0].watched_date, "2026-07-01")
+
+    def test_season_rating_not_promoted_when_show_rated(self):
+        items = self._parse_dir()
+        show_ratings = [i for i in items
+                        if i.target == "ratings" and i.media_type == "show"]
+        self.assertEqual(len(show_ratings), 1)
+        self.assertEqual(show_ratings[0].rating, 9)
+
+    def test_season_rating_promoted_when_show_unrated(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write_export(d)
+            with open(os.path.join(d, "ratings-shows.json"), "w") as f:
+                f.write("[]")
+            with open(os.path.join(d, "ratings-seasons.json"), "w") as f:
+                f.write(json.dumps([
+                    {
+                        "rated_at": "2026-05-09T22:33:46.000Z",
+                        "rating": 8,
+                        "season": {"number": 1},
+                        "show": {
+                            "ids": {"imdb": "tt259", "tmdb": 259265},
+                            "year": 2024,
+                            "title": "Something Very Bad",
+                        },
+                    }
+                ]))
+            items = TraktExport.parse(d)
+        promoted = [i for i in items if i.target == "ratings"
+                    and i.media_type == "show" and i.tmdb_id == 259265]
+        self.assertEqual(len(promoted), 1)
+        self.assertEqual(promoted[0].rating, 8)
+
+    def test_latest_season_wins(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write_export(d, include_files=False)
+            with open(os.path.join(d, "ratings-seasons.json"), "w") as f:
+                f.write(json.dumps([
+                    {
+                        "rated_at": "2026-01-01T00:00:00.000Z",
+                        "rating": 3,
+                        "season": {"number": 1},
+                        "show": {
+                            "ids": {"tmdb": 9}, "year": 2020, "title": "S",
+                        },
+                    },
+                    {
+                        "rated_at": "2026-06-01T00:00:00.000Z",
+                        "rating": 8,
+                        "season": {"number": 2},
+                        "show": {
+                            "ids": {"tmdb": 9}, "year": 2020, "title": "S",
+                        },
+                    },
+                ]))
+            items = TraktExport.parse(d)
+        promoted = [i for i in items if i.target == "ratings"
+                    and i.tmdb_id == 9]
+        self.assertEqual(len(promoted), 1)
+        self.assertEqual(promoted[0].rating, 8)
+
+    def test_zip_archive(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write_export(d)
+            zip_path = os.path.join(d, "export.zip")
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                for name in os.listdir(d):
+                    if name.endswith(".json"):
+                        zf.write(os.path.join(d, name), name)
+            items = TraktExport.parse(zip_path)
+        watched = [i for i in items if i.target == "watched"]
+        self.assertEqual(len(watched), 2)
+
+    def test_nested_zip_archive(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write_export(d)
+            zip_path = os.path.join(d, "export.zip")
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                for name in os.listdir(d):
+                    if name.endswith(".json"):
+                        zf.write(
+                            os.path.join(d, name), f"trakt-export/{name}"
+                        )
+            items = TraktExport.parse(zip_path)
+        self.assertEqual(len(items), 5)
+
+    def test_non_trakt_export_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, "user-profile.json"), "{}")
+            with self.assertRaises(ImportParseError):
+                TraktExport.parse(d)
+
 
 class _StubModel:
     def __init__(self, tmdb_id, media_type, title, year):
@@ -180,7 +431,6 @@ class _StubModel:
         self.media_type = media_type
         self.title = title
         self.year = year
-
 
 class _StubService:
     """Resolves only the ids/titles it was configured with."""
@@ -264,6 +514,17 @@ class MatcherTest(unittest.TestCase):
         self.assertEqual(result.status, "matched")
         self.assertEqual(result.tmdb_id, 680)
 
+    def test_direct_tmdb_id_no_lookups(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._make_repo(d)
+            matcher = Matcher(repo, _StubService())
+            result = matcher.match(ImportItem(
+                title="Babygirl", tmdb_id=1097549, media_type="movie"
+            ))
+        self.assertEqual(result.status, "matched")
+        self.assertEqual(result.tmdb_id, 1097549)
+        self.assertEqual(result.media_type, "movie")
+
     def test_unmatched_when_nothing_found(self):
         with tempfile.TemporaryDirectory() as d:
             repo = self._make_repo(d)
@@ -315,6 +576,30 @@ class RepositoryImportTest(unittest.TestCase):
             ).fetchone()
             self.assertEqual(meta[0], "Fight Club")
             self.assertEqual(meta[1], "tt0137523")
+
+    def test_import_watched_episode_caches_parent_show(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._make_repo(d)
+            count = repo.import_watched([
+                {
+                    "tmdb_id": 5001, "media_type": "episode",
+                    "title": "Something Very Bad", "year": 2024,
+                    "imdb_id": "tt259", "show_tmdb_id": 259265,
+                    "season_number": 2, "episode_number": 3,
+                    "watched_at": 1691971200,
+                },
+            ])
+            self.assertEqual(count, 1)
+            conn = repo._ensure_conn()
+            row = conn.execute(
+                "SELECT tmdb_id, media_type, show_tmdb_id, season_number, "
+                "episode_number FROM watched_items WHERE tmdb_id=5001"
+            ).fetchone()
+            self.assertEqual(tuple(row), (5001, "episode", 259265, 2, 3))
+            meta = conn.execute(
+                "SELECT media_type, title FROM media_items WHERE tmdb_id=259265"
+            ).fetchone()
+            self.assertEqual(tuple(meta), ("show", "Something Very Bad"))
 
     def test_import_watchlist(self):
         with tempfile.TemporaryDirectory() as d:

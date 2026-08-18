@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
+import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -110,6 +112,10 @@ class ImportItem:
     tags: list[str] = field(default_factory=list)
     target: str = "watched"  # watched | watchlist | ratings | collection
     source: str = ""  # original title as shown in the source
+    tmdb_id: int | None = None
+    show_tmdb_id: int | None = None
+    season_number: int | None = None
+    episode_number: int | None = None
 
 
 class ImportParseError(Exception):
@@ -354,6 +360,273 @@ class GenericJSON:
 
 
 # ----------------------------------------------------------------------
+# Trakt native JSON export
+# ----------------------------------------------------------------------
+
+_HISTORY_FILE_RE = re.compile(r"^watched-history-\d+\.json$")
+
+_KNOWN_TRAKT_FILES = {
+    "watched-history-": "watched",
+    "watched-movies.json": "watched",
+    "watched-shows.json": "watched",
+    "ratings-movies.json": "ratings",
+    "ratings-shows.json": "ratings",
+    "ratings-seasons.json": "ratings",
+    "lists-watchlist.json": "watchlist",
+}
+
+
+def _trakt_json_files(path: str):
+    """Yield (basename, parsed JSON) for each .json inside an export.
+
+    `path` may be a .zip archive or an extracted directory.
+    """
+    if os.path.isdir(path):
+        try:
+            names = sorted(
+                name for name in os.listdir(path)
+                if os.path.isfile(os.path.join(path, name))
+                and name.endswith(".json")
+            )
+        except OSError as exc:
+            raise ImportParseError(f"Cannot read directory: {exc}") from exc
+        for name in names:
+            try:
+                with open(os.path.join(path, name), "r", encoding="utf-8") as f:
+                    yield name, json.load(f)
+            except OSError as exc:
+                raise ImportParseError(f"Cannot read file: {exc}") from exc
+            except json.JSONDecodeError as exc:
+                raise ImportParseError(f"{name} is not valid JSON: {exc}") from exc
+        return
+
+    entries: list[tuple[str, object]] = []
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for info in archive.infolist():
+                name = os.path.basename(info.filename)
+                if info.is_dir() or not name.endswith(".json"):
+                    continue
+                try:
+                    with archive.open(info) as f:
+                        data = json.load(f)
+                except json.JSONDecodeError as exc:
+                    raise ImportParseError(
+                        f"{name} is not valid JSON: {exc}"
+                    ) from exc
+                entries.append((name, data))
+    except OSError as exc:
+        raise ImportParseError(f"Cannot read archive: {exc}") from exc
+    except zipfile.BadZipFile as exc:
+        raise ImportParseError(f"Not a valid zip archive: {exc}") from exc
+    yield from entries
+
+
+def _trakt_media(data: dict) -> dict:
+    """Extract the movie/show object from a Trakt list entry."""
+    for key in ("movie", "show"):
+        value = data.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _trakt_ids(media: dict) -> dict:
+    return media.get("ids") if isinstance(media.get("ids"), dict) else {}
+
+
+class TraktExport:
+    """Parse Trakt's native JSON export (a .zip or extracted directory).
+
+    Prefers the per-episode `watched-history-*.json` files for the watched
+    target, and reads ratings/watchlist from their own files. Every entry
+    carries TMDB ids directly, so no matching lookup is ever needed.
+    """
+
+    @classmethod
+    def parse(cls, path: str) -> list[ImportItem]:
+        items: list[ImportItem] = []
+        file_watched: list[ImportItem] = []
+        seen_known = False
+        seen_history = False
+        season_ratings: list[dict] = []
+        explicit_show_ratings: set[int] = set()
+
+        for name, data in _trakt_json_files(path):
+            if not isinstance(data, list):
+                continue
+            if _HISTORY_FILE_RE.match(name):
+                seen_known = True
+                seen_history = True
+                for entry in data:
+                    if isinstance(entry, dict):
+                        items.append(cls._history_entry(entry))
+            elif name == "watched-movies.json":
+                seen_known = True
+                for entry in data:
+                    if isinstance(entry, dict):
+                        item = cls._media_item(entry, "movie", "watched")
+                        if item:
+                            file_watched.append(item)
+            elif name == "watched-shows.json":
+                seen_known = True
+                for entry in data:
+                    if isinstance(entry, dict):
+                        item = cls._media_item(entry, "show", "watched")
+                        if item:
+                            file_watched.append(item)
+            elif name == "ratings-movies.json":
+                seen_known = True
+                for entry in data:
+                    if isinstance(entry, dict):
+                        item = cls._media_item(entry, "movie", "ratings")
+                        if item:
+                            items.append(item)
+            elif name == "ratings-shows.json":
+                seen_known = True
+                for entry in data:
+                    if not isinstance(entry, dict):
+                        continue
+                    item = cls._media_item(entry, "show", "ratings")
+                    if item:
+                        if item.tmdb_id:
+                            explicit_show_ratings.add(item.tmdb_id)
+                        items.append(item)
+            elif name == "ratings-seasons.json":
+                seen_known = True
+                season_ratings.extend(
+                    entry for entry in data if isinstance(entry, dict)
+                )
+            elif name == "lists-watchlist.json":
+                seen_known = True
+                for entry in data:
+                    if isinstance(entry, dict):
+                        item = cls._media_item(entry, None, "watchlist")
+                        if item:
+                            items.append(item)
+
+        if not seen_known:
+            raise ImportParseError(
+                "This file does not look like a Trakt export "
+                "(no watched-history, ratings or watchlist files found)"
+            )
+
+        # watched-history-* is the precise per-episode source of truth;
+        # watched-movies.json / watched-shows.json only add value when the
+        # history files are absent.
+        if not seen_history:
+            items.extend(file_watched)
+
+        items.extend(cls._promote_season_ratings(
+            season_ratings, explicit_show_ratings
+        ))
+        return items
+
+    @staticmethod
+    def _history_entry(entry: dict) -> ImportItem:
+        entry_type = entry.get("type")
+        watched_date = _parse_date(entry.get("watched_at") or None)
+        if entry_type == "episode":
+            episode = entry.get("episode") or {}
+            show = entry.get("show") or {}
+            ids = _trakt_ids(episode)
+            show_ids = _trakt_ids(show)
+            return ImportItem(
+                title=_clean_title(show.get("title")),
+                year=_parse_int(show.get("year")),
+                imdb_id=show_ids.get("imdb"),
+                media_type="episode",
+                watched_date=watched_date,
+                target="watched",
+                source=_clean_title(episode.get("title")),
+                tmdb_id=_parse_int(ids.get("tmdb")),
+                show_tmdb_id=_parse_int(show_ids.get("tmdb")),
+                season_number=_parse_int(episode.get("season")),
+                episode_number=_parse_int(episode.get("number")),
+            )
+        media = entry.get("movie") or {}
+        ids = _trakt_ids(media)
+        return ImportItem(
+            title=_clean_title(media.get("title")),
+            year=_parse_int(media.get("year")),
+            imdb_id=ids.get("imdb"),
+            media_type="movie",
+            watched_date=watched_date,
+            target="watched",
+            source=_clean_title(media.get("title")),
+            tmdb_id=_parse_int(ids.get("tmdb")),
+        )
+
+    @classmethod
+    def _media_item(
+        cls, entry: dict, media_type: str | None, target: str
+    ) -> ImportItem | None:
+        media = _trakt_media(entry)
+        if not media:
+            return None
+        ids = _trakt_ids(media)
+        title = _clean_title(media.get("title"))
+        if not title:
+            return None
+        rating = _parse_rating(entry.get("rating"))
+        date_key = {
+            "watched": "last_watched_at",
+            "ratings": "rated_at",
+            "watchlist": "listed_at",
+        }.get(target, "listed_at")
+        return ImportItem(
+            title=title,
+            year=_parse_int(media.get("year")),
+            imdb_id=ids.get("imdb"),
+            media_type=media_type or _normalize_media_type(
+                media.get("media_type")
+            ),
+            rating=rating,
+            watched_date=_parse_date(entry.get(date_key) or None),
+            target=target,
+            source=title,
+            tmdb_id=_parse_int(ids.get("tmdb")),
+        )
+
+    @staticmethod
+    def _promote_season_ratings(
+        season_ratings: list[dict], explicit: set[int]
+    ) -> list[ImportItem]:
+        """Promote each show's most-recently-rated season to a show rating."""
+        by_show: dict[int, dict] = {}
+        for entry in season_ratings:
+            media = _trakt_media(entry)
+            show_tmdb = _parse_int(_trakt_ids(media).get("tmdb"))
+            if not show_tmdb:
+                continue
+            rated_at = str(entry.get("rated_at") or "")
+            current = by_show.get(show_tmdb)
+            if current is None or rated_at > str(current.get("rated_at") or ""):
+                by_show[show_tmdb] = entry
+        items: list[ImportItem] = []
+        for show_tmdb, entry in by_show.items():
+            if show_tmdb in explicit:
+                continue
+            media = _trakt_media(entry)
+            ids = _trakt_ids(media)
+            title = _clean_title(media.get("title"))
+            if not title:
+                continue
+            items.append(ImportItem(
+                title=title,
+                year=_parse_int(media.get("year")),
+                imdb_id=ids.get("imdb"),
+                media_type="show",
+                rating=_parse_rating(entry.get("rating")),
+                watched_date=_parse_date(entry.get("rated_at") or None),
+                target="ratings",
+                source=title,
+                tmdb_id=show_tmdb,
+            ))
+        return items
+
+
+# ----------------------------------------------------------------------
 # Title matching
 # ----------------------------------------------------------------------
 
@@ -436,9 +709,19 @@ class Matcher:
     def match(self, item: ImportItem) -> "MatchResult":
         resolved: dict | None = None
 
-        row = self._local_by_imdb(item.imdb_id or "")
-        if row:
-            resolved = row
+        # Trakt exports carry TMDB ids directly; skip all lookups.
+        if item.tmdb_id:
+            resolved = {
+                "tmdb_id": item.tmdb_id,
+                "media_type": item.media_type or "movie",
+                "title": item.title,
+                "year": item.year,
+            }
+
+        if resolved is None:
+            row = self._local_by_imdb(item.imdb_id or "")
+            if row:
+                resolved = row
         if resolved is None:
             row = self._local_by_title_year(item.title, item.year)
             if row:
@@ -473,6 +756,8 @@ class MatchResult:
 
 def select_parser(path: str):
     """Pick the right parser class based on file extension and headers."""
+    if path.lower().endswith(".zip") or os.path.isdir(path):
+        return TraktExport
     if path.lower().endswith(".json"):
         return GenericJSON
 
