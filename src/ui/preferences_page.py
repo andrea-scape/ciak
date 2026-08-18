@@ -288,17 +288,6 @@ class PreferencesPage(Adw.PreferencesDialog):
         )
         integrations_group.add(link_row)
 
-        separator = Gtk.Separator()
-        separator.set_margin_top(8)
-        separator.set_margin_bottom(8)
-        integrations_group.add(separator)
-
-        trakt_row = Adw.ActionRow()
-        trakt_row.set_title("Trakt Integration")
-        trakt_row.set_subtitle("Trakt integration is planned for a future release.")
-        trakt_row.set_activatable(False)
-        integrations_group.add(trakt_row)
-
     def _build_import_export_group(self, page):
         import_export_group = Adw.PreferencesGroup()
         import_export_group.set_title("Import and Export")
