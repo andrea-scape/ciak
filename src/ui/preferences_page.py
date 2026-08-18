@@ -252,6 +252,14 @@ class PreferencesPage(Adw.PreferencesDialog):
         )
         page.set_banner(self.advanced_banner)
 
+        self._build_tmdb_group(page)
+        self._build_integrations_group(page)
+        self._build_import_export_group(page)
+        self._build_cache_group(page)
+        self._build_data_management_group(page)
+        self._build_setup_group(page)
+
+    def _build_tmdb_group(self, page):
         tmdb_group = Adw.PreferencesGroup()
         tmdb_group.set_title("TMDB API")
         tmdb_group.set_description("Configure your The Movie Database API key")
@@ -278,34 +286,58 @@ class PreferencesPage(Adw.PreferencesDialog):
         )
         tmdb_group.add(link_row)
 
-        trakt_group = Adw.PreferencesGroup()
-        trakt_group.set_title("Trakt Integration")
-        page.add(trakt_group)
+    def _build_integrations_group(self, page):
+        integrations_group = Adw.PreferencesGroup()
+        integrations_group.set_title("Integrations")
+        page.add(integrations_group)
 
         trakt_row = Adw.ActionRow()
-        trakt_row.set_title("Coming Soon")
+        trakt_row.set_title("Trakt Integration")
         trakt_row.set_subtitle("Trakt integration is planned for a future release.")
         trakt_row.set_activatable(False)
-        trakt_group.add(trakt_row)
+        integrations_group.add(trakt_row)
 
-        setup_group = Adw.PreferencesGroup()
-        setup_group.set_title("Setup")
-        page.add(setup_group)
+    def _build_import_export_group(self, page):
+        import_export_group = Adw.PreferencesGroup()
+        import_export_group.set_title("Import & Export")
+        import_export_group.set_description("Move your library data in and out of Ciak")
+        page.add(import_export_group)
 
-        relaunch_row = Adw.ActionRow()
-        relaunch_row.set_title("Relaunch Onboarding")
-        relaunch_row.set_subtitle("Show the first-run setup wizard again")
-        relaunch_row.set_activatable(True)
-        relaunch_row.connect("activated", self._on_relaunch_onboarding_clicked)
-        relaunch_row.add_suffix(
-            Gtk.Image.new_from_icon_name("view-refresh-symbolic")
+        export_row = Adw.ActionRow()
+        export_row.set_title("Export Data")
+        export_row.set_subtitle(
+            "Export your watchlist, watched history, ratings, and "
+            "collection as CSV or JSON"
         )
-        setup_group.add(relaunch_row)
+        export_row.set_activatable(False)
+        export_btn = Gtk.Button(icon_name="document-send-symbolic")
+        export_btn.set_tooltip_text("Export")
+        export_btn.set_valign(Gtk.Align.CENTER)
+        export_btn.add_css_class("flat")
+        export_btn.connect("clicked", self._on_export_clicked)
+        export_row.add_suffix(export_btn)
+        import_export_group.add(export_row)
 
-        data_group = Adw.PreferencesGroup()
-        data_group.set_title("Data")
-        data_group.set_description("Cache used to store poster images")
-        page.add(data_group)
+        import_row = Adw.ActionRow()
+        import_row.set_title("Import Data")
+        import_row.set_subtitle(
+            "Import watchlist, watched history, and ratings from a "
+            "Trakt, Letterboxd, or IMDb CSV, or a JSON file"
+        )
+        import_row.set_activatable(False)
+        import_btn = Gtk.Button(icon_name="document-open-symbolic")
+        import_btn.set_tooltip_text("Import")
+        import_btn.set_valign(Gtk.Align.CENTER)
+        import_btn.add_css_class("flat")
+        import_btn.connect("clicked", self._on_import_clicked)
+        import_row.add_suffix(import_btn)
+        import_export_group.add(import_row)
+
+    def _build_cache_group(self, page):
+        cache_group = Adw.PreferencesGroup()
+        cache_group.set_title("Cache")
+        cache_group.set_description("Poster images stored on disk")
+        page.add(cache_group)
 
         self.clear_cache_row = Adw.ActionRow()
         self.clear_cache_row.set_title("Clear Cache")
@@ -323,7 +355,7 @@ class PreferencesPage(Adw.PreferencesDialog):
         clear_btn.add_css_class("flat")
         clear_btn.connect("clicked", self._on_clear_cache_clicked)
         self.clear_cache_row.add_suffix(clear_btn)
-        data_group.add(self.clear_cache_row)
+        cache_group.add(self.clear_cache_row)
 
         self.cache_size_adjustment = Gtk.Adjustment.new(
             self._settings.get_int("cache-max-size-mb"), 50, 4096, 50, 500, 0
@@ -334,7 +366,7 @@ class PreferencesPage(Adw.PreferencesDialog):
             "Maximum disk space used by cached images (in MB)"
         )
         cache_size_row.connect("notify::value", self._on_cache_size_changed)
-        data_group.add(cache_size_row)
+        cache_group.add(cache_size_row)
 
         clear_exit_row = Adw.SwitchRow()
         clear_exit_row.set_title("Clear Cache on Exit")
@@ -344,7 +376,15 @@ class PreferencesPage(Adw.PreferencesDialog):
             "active",
             Gio.SettingsBindFlags.DEFAULT,
         )
-        data_group.add(clear_exit_row)
+        cache_group.add(clear_exit_row)
+
+    def _build_data_management_group(self, page):
+        data_management_group = Adw.PreferencesGroup()
+        data_management_group.set_title("Data Management")
+        data_management_group.set_description(
+            "Erasing the local database is permanent and cannot be undone"
+        )
+        page.add(data_management_group)
 
         delete_db_row = Adw.ActionRow()
         delete_db_row.set_title("Delete Local Database")
@@ -360,37 +400,22 @@ class PreferencesPage(Adw.PreferencesDialog):
         delete_btn.add_css_class("destructive-action")
         delete_btn.connect("clicked", self._on_delete_db_clicked)
         delete_db_row.add_suffix(delete_btn)
-        data_group.add(delete_db_row)
+        data_management_group.add(delete_db_row)
 
-        export_row = Adw.ActionRow()
-        export_row.set_title("Export Data")
-        export_row.set_subtitle(
-            "Export your watchlist, watched history, ratings, and "
-            "collection as CSV or JSON"
-        )
-        export_row.set_activatable(False)
-        export_btn = Gtk.Button(icon_name="document-send-symbolic")
-        export_btn.set_tooltip_text("Export")
-        export_btn.set_valign(Gtk.Align.CENTER)
-        export_btn.add_css_class("flat")
-        export_btn.connect("clicked", self._on_export_clicked)
-        export_row.add_suffix(export_btn)
-        data_group.add(export_row)
+    def _build_setup_group(self, page):
+        setup_group = Adw.PreferencesGroup()
+        setup_group.set_title("Setup")
+        page.add(setup_group)
 
-        import_row = Adw.ActionRow()
-        import_row.set_title("Import Data")
-        import_row.set_subtitle(
-            "Import watchlist, watched history, and ratings from a "
-            "Trakt, Letterboxd, or IMDb CSV, or a JSON file"
+        relaunch_row = Adw.ActionRow()
+        relaunch_row.set_title("Relaunch Onboarding")
+        relaunch_row.set_subtitle("Show the first-run setup wizard again")
+        relaunch_row.set_activatable(True)
+        relaunch_row.connect("activated", self._on_relaunch_onboarding_clicked)
+        relaunch_row.add_suffix(
+            Gtk.Image.new_from_icon_name("view-refresh-symbolic")
         )
-        import_row.set_activatable(False)
-        import_btn = Gtk.Button(icon_name="document-open-symbolic")
-        import_btn.set_tooltip_text("Import")
-        import_btn.set_valign(Gtk.Align.CENTER)
-        import_btn.add_css_class("flat")
-        import_btn.connect("clicked", self._on_import_clicked)
-        import_row.add_suffix(import_btn)
-        data_group.add(import_row)
+        setup_group.add(relaunch_row)
 
     def _on_cache_size_changed(self, row, _gparam):
         self._settings.set_int("cache-max-size-mb", int(row.get_value()))
