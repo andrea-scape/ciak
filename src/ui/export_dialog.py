@@ -20,6 +20,7 @@ from .. import threads
 _FORMATS = [
     {
         "id": "trakt-csv",
+        "short": "trakt",
         "label": "Trakt CSV",
         "subtitle": "Compatible with Trakt import",
         "extension": ".csv",
@@ -27,6 +28,7 @@ _FORMATS = [
     },
     {
         "id": "letterboxd-csv",
+        "short": "letterboxd",
         "label": "Letterboxd CSV",
         "subtitle": "Compatible with Letterboxd import",
         "extension": ".csv",
@@ -34,6 +36,7 @@ _FORMATS = [
     },
     {
         "id": "imdb-csv",
+        "short": "imdb",
         "label": "IMDb CSV",
         "subtitle": "Compatible with IMDb list import",
         "extension": ".csv",
@@ -41,6 +44,7 @@ _FORMATS = [
     },
     {
         "id": "json",
+        "short": "json",
         "label": "JSON",
         "subtitle": "Full structured data dump",
         "extension": ".json",
@@ -180,7 +184,8 @@ class ExportFormatDialog(Adw.Dialog):
         self._file_dialog = Gtk.FileDialog()
         self._file_dialog.set_title("Save Export")
         ext = self._selected_format["extension"]
-        basename = f"ciak-export-{date.today().isoformat()}{ext}"
+        short = self._selected_format["short"]
+        basename = f"ciak-export-{date.today().isoformat()}({short}){ext}"
         self._file_dialog.set_initial_name(basename)
 
         filter_fmt = Gtk.FileFilter()
