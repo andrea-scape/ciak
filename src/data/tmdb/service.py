@@ -43,6 +43,54 @@ class TmdbMetadataService:
         return [self._raw_to_show(item) for item in data.get("results", [])]
 
     # ------------------------------------------------------------------
+    # Import resolution helpers
+    # ------------------------------------------------------------------
+
+    def resolve_imdb(self, imdb_id: str) -> Movie | Show | None:
+        """Resolve an IMDb id to a Movie or Show, or None on a miss."""
+        try:
+            data = self._client.find_by_imdb(imdb_id)
+        except (httpx.HTTPError, ValueError) as exc:
+            raise NetworkError(f"TMDB lookup failed: {exc}") from exc
+        movies = data.get("movie_results") or []
+        shows = data.get("tv_results") or []
+        if movies:
+            return self._raw_to_movie(movies[0])
+        if shows:
+            return self._raw_to_show(shows[0])
+        return None
+
+    def search_best(
+        self, query: str, year: int | None, media_type: str | None
+    ) -> Movie | Show | None:
+        """Return the top search hit matching the title (and year when known).
+
+        Prefers an exact year match; falls back to the first result.
+        """
+        try:
+            raw_results = None
+            if media_type in (None, "movie", "episode"):
+                movies = self.search_movies(query)
+                if movies:
+                    picked = self._pick_best(movies, query, year)
+                    raw_results = picked
+            if raw_results is None and media_type in (None, "show", "episode"):
+                shows = self.search_shows(query)
+                if shows:
+                    picked = self._pick_best(shows, query, year)
+                    raw_results = picked
+            return raw_results
+        except NetworkError:
+            return None
+
+    def _pick_best(self, results, query: str, year: int | None):
+        if year is not None:
+            for result in results:
+                if result.year == year:
+                    return result
+        return results[0] if results else None
+
+    # ------------------------------------------------------------------
     # Detail (cache-first)
     # ------------------------------------------------------------------
 

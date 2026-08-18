@@ -10,6 +10,7 @@ from .. import poster_cache
 from .. import config
 from ..theme import apply_theme
 from .export_dialog import show_export_dialog
+from .import_dialog import show_import_dialog
 
 THEME_VALUES = ["light", "dark", "default"]
 
@@ -376,6 +377,21 @@ class PreferencesPage(Adw.PreferencesDialog):
         export_row.add_suffix(export_btn)
         data_group.add(export_row)
 
+        import_row = Adw.ActionRow()
+        import_row.set_title("Import Data")
+        import_row.set_subtitle(
+            "Import watchlist, watched history, and ratings from a "
+            "Trakt, Letterboxd, or IMDb CSV, or a JSON file"
+        )
+        import_row.set_activatable(False)
+        import_btn = Gtk.Button(icon_name="document-open-symbolic")
+        import_btn.set_tooltip_text("Import")
+        import_btn.set_valign(Gtk.Align.CENTER)
+        import_btn.add_css_class("flat")
+        import_btn.connect("clicked", self._on_import_clicked)
+        import_row.add_suffix(import_btn)
+        data_group.add(import_row)
+
     def _on_cache_size_changed(self, row, _gparam):
         self._settings.set_int("cache-max-size-mb", int(row.get_value()))
         self.advanced_banner.set_revealed(True)
@@ -456,6 +472,11 @@ class PreferencesPage(Adw.PreferencesDialog):
         from ..main import CiakApp
         app = CiakApp.get_default()
         show_export_dialog(self, app._user_repo)
+
+    def _on_import_clicked(self, _btn):
+        from ..main import CiakApp
+        app = CiakApp.get_default()
+        show_import_dialog(self, app._user_repo, app._metadata_service)
 
     def _on_sidebar_mode_changed(self, row, _gparam):
         value = "collapse" if row.get_selected() == 0 else "remember"

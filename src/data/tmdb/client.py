@@ -117,6 +117,12 @@ class TmdbClient:
     def get_tv(self, tv_id: int) -> dict:
         return self._get(f"/tv/{tv_id}")
 
+    def find_by_imdb(self, imdb_id: str) -> dict:
+        """Resolve an IMDb id to TMDB movie/tv results."""
+        return self._get(
+            f"/find/{imdb_id}", {"external_source": "imdb_id"}
+        )
+
     def get_tv_season(self, tv_id: int, season_number: int) -> dict:
         return self._get(f"/tv/{tv_id}/season/{season_number}")
 

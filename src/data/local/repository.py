@@ -493,6 +493,154 @@ class LocalMediaRepository:
         return int(movies or 0) + int(episodes or 0) + missing_minutes
 
     # ------------------------------------------------------------------
+    # Import (bulk)
+    # ------------------------------------------------------------------
+
+    def find_media_by_imdb_id(self, imdb_id: str) -> dict | None:
+        """Return a media cache row matched by IMDb id, if any."""
+        conn = self._ensure_conn()
+        row = conn.execute(
+            "SELECT tmdb_id, media_type, title, year, imdb_id "
+            "FROM media_items WHERE lower(imdb_id) = lower(?)",
+            (imdb_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def find_media_by_title_year(
+        self, title: str, year: int | None
+    ) -> dict | None:
+        """Return a media cache row matched by normalized title and year."""
+        if not title:
+            return None
+        conn = self._ensure_conn()
+        row = conn.execute(
+            "SELECT tmdb_id, media_type, title, year, imdb_id "
+            "FROM media_items WHERE lower(title) = lower(?) AND year = ?",
+            (title, int(year)) if year is not None else (title, year),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_existing_ids(self, table: str) -> set[int]:
+        """Return the set of tmdb_ids already present in a user-data table."""
+        conn = self._ensure_conn()
+        rows = conn.execute(
+            f"SELECT DISTINCT tmdb_id FROM {table}"
+        ).fetchall()
+        return {int(r[0]) for r in rows}
+
+    def _upsert_media_meta(
+        self, conn, tmdb_id: int, media_type: str, title: str,
+        year: int | None, imdb_id: str | None
+    ) -> None:
+        now = int(time.time())
+        conn.execute(
+            "INSERT INTO media_items "
+            "(tmdb_id, media_type, title, year, imdb_id, cached_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(tmdb_id) DO UPDATE SET "
+            "media_type=excluded.media_type, title=excluded.title, "
+            "year=excluded.year, "
+            "imdb_id=COALESCE(media_items.imdb_id, excluded.imdb_id), "
+            "updated_at=excluded.updated_at",
+            (
+                tmdb_id,
+                media_type,
+                title,
+                year,
+                imdb_id or None,
+                now,
+                now,
+            ),
+        )
+
+    def import_watched(self, rows: list[dict]) -> int:
+        """Bulk-insert watched items with their original timestamps."""
+        conn = self._ensure_conn()
+        count = 0
+        with conn:
+            for row in rows:
+                tmdb_id = int(row["tmdb_id"])
+                media_type = row.get("media_type") or "movie"
+                title = row.get("title") or ""
+                year = row.get("year")
+                imdb_id = row.get("imdb_id")
+                watched_at = int(row.get("watched_at") or int(time.time()))
+                show_tmdb_id = row.get("show_tmdb_id")
+                season_number = row.get("season_number")
+                episode_number = row.get("episode_number")
+                self._upsert_media_meta(
+                    conn, tmdb_id, media_type, title, year, imdb_id
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO watched_items "
+                    "(tmdb_id, media_type, show_tmdb_id, season_number, "
+                    "episode_number, watched_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        tmdb_id,
+                        media_type,
+                        show_tmdb_id,
+                        season_number,
+                        episode_number,
+                        watched_at,
+                    ),
+                )
+                count += 1
+        return count
+
+    def import_watchlist(self, rows: list[dict]) -> int:
+        """Bulk-insert watchlist items with their original timestamps."""
+        conn = self._ensure_conn()
+        count = 0
+        with conn:
+            for row in rows:
+                tmdb_id = int(row["tmdb_id"])
+                media_type = row.get("media_type") or "movie"
+                title = row.get("title") or ""
+                year = row.get("year")
+                imdb_id = row.get("imdb_id")
+                added_at = int(row.get("added_at") or int(time.time()))
+                self._upsert_media_meta(
+                    conn, tmdb_id, media_type, title, year, imdb_id
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO watchlist_items "
+                    "(tmdb_id, media_type, added_at) VALUES (?, ?, ?)",
+                    (tmdb_id, media_type, added_at),
+                )
+                count += 1
+        return count
+
+    def import_ratings(self, rows: list[dict]) -> int:
+        """Bulk-insert ratings with their original timestamps/values."""
+        conn = self._ensure_conn()
+        count = 0
+        with conn:
+            for row in rows:
+                tmdb_id = int(row["tmdb_id"])
+                media_type = row.get("media_type") or "movie"
+                title = row.get("title") or ""
+                year = row.get("year")
+                imdb_id = row.get("imdb_id")
+                rating = int(row["rating"])
+                if not (1 <= rating <= 10):
+                    continue
+                # The ratings table stores a 1-5 star scale (migration v2
+                # halved legacy 1-10 values), so halve imported values.
+                stored_rating = max(1, round(rating / 2.0))
+                rated_at = int(row.get("rated_at") or int(time.time()))
+                self._upsert_media_meta(
+                    conn, tmdb_id, media_type, title, year, imdb_id
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO ratings "
+                    "(tmdb_id, media_type, rating, rated_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (tmdb_id, media_type, stored_rating, rated_at),
+                )
+                count += 1
+        return count
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
