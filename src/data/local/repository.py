@@ -126,7 +126,7 @@ class LocalMediaRepository:
         query = (
             "SELECT w.tmdb_id, w.media_type, w.show_tmdb_id, w.season_number, "
             "w.episode_number, w.watched_at, "
-            "m.title, m.year, m.poster_url "
+            "m.title, m.year, m.poster_url, m.imdb_id, m.runtime "
             "FROM watched_items w "
             "LEFT JOIN media_items m ON w.tmdb_id = m.tmdb_id "
         )
@@ -222,7 +222,7 @@ class LocalMediaRepository:
         conn = self._ensure_conn()
         query = (
             "SELECT wl.tmdb_id, wl.media_type, wl.added_at, "
-            "m.title, m.year, m.poster_url, m.runtime "
+            "m.title, m.year, m.poster_url, m.runtime, m.imdb_id "
             "FROM watchlist_items wl "
             "LEFT JOIN media_items m ON wl.tmdb_id = m.tmdb_id"
         )
@@ -270,7 +270,7 @@ class LocalMediaRepository:
         conn = self._ensure_conn()
         query = (
             "SELECT r.tmdb_id, r.media_type, r.rating, r.rated_at, "
-            "m.title, m.year, m.poster_url "
+            "m.title, m.year, m.poster_url, m.imdb_id "
             "FROM ratings r "
             "LEFT JOIN media_items m ON r.tmdb_id = m.tmdb_id"
         )
@@ -308,7 +308,7 @@ class LocalMediaRepository:
         conn = self._ensure_conn()
         query = (
             "SELECT c.tmdb_id, c.media_type, c.collected_at, "
-            "m.title, m.year, m.poster_url "
+            "m.title, m.year, m.poster_url, m.imdb_id "
             "FROM collection_items c "
             "LEFT JOIN media_items m ON c.tmdb_id = m.tmdb_id"
         )

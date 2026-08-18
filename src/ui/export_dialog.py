@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import traceback
+from datetime import date
 
 from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 
@@ -60,8 +61,11 @@ def _get_main_window() -> Gtk.Window | None:
     return windows[0] if windows else None
 
 
-def _show_toast_on_main(toast: Adw.Toast) -> None:
-    """Show a toast on the main window's ToastOverlay."""
+def _show_toast(toast: Adw.Toast, parent: Gtk.Widget | None = None) -> None:
+    """Show a toast, preferring a dialog's own overlay over the main window."""
+    if parent is not None and hasattr(parent, "add_toast"):
+        parent.add_toast(toast)
+        return
     window = _get_main_window()
     if window is None:
         return
@@ -70,10 +74,40 @@ def _show_toast_on_main(toast: Adw.Toast) -> None:
         overlay.add_toast(toast)
 
 
-def _show_error_dialog(message: str, tb_text: str) -> None:
+def _reveal_file_in_file_manager(path: str) -> None:
+    """Reveal a file in the system file manager, if possible."""
+    file_uri = Gio.File.new_for_path(path).get_uri()
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        proxy = Gio.DBusProxy.new_sync(
+            bus,
+            Gio.DBusProxyFlags.NONE,
+            None,
+            "org.freedesktop.FileManager1",
+            "/org/freedesktop/FileManager1",
+            "org.freedesktop.FileManager1",
+            None,
+        )
+        proxy.call_sync(
+            "ShowItems",
+            GLib.Variant("(ass)", ([file_uri], "")),
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None,
+        )
+        return
+    except Exception:
+        pass
+    folder_uri = Gio.File.new_for_path(os.path.dirname(path)).get_uri()
+    Gio.app_info_launch_default_for_uri(folder_uri, None)
+
+
+def _show_error_dialog(
+    message: str, tb_text: str, parent: Gtk.Widget | None = None
+) -> None:
     """Show an error dialog with the full error and a Copy button."""
-    window = _get_main_window()
-    if window is None:
+    target = parent if parent is not None else _get_main_window()
+    if target is None:
         return
 
     dialog = Adw.AlertDialog.new("Export Failed", message)
@@ -87,10 +121,10 @@ def _show_error_dialog(message: str, tb_text: str) -> None:
             text = f"{message}\n\n{tb_text}"
             clipboard = Gdk.Display.get_default().get_clipboard()
             clipboard.set(text)
-            _show_toast_on_main(Adw.Toast.new("Error copied to clipboard"))
+            _show_toast(Adw.Toast.new("Error copied to clipboard"), parent)
 
     dialog.connect("response", _on_response)
-    dialog.present(window)
+    dialog.present(target)
 
 
 class ExportFormatDialog(Adw.Dialog):
@@ -102,6 +136,7 @@ class ExportFormatDialog(Adw.Dialog):
         self.set_content_width(400)
         self.set_presentation_mode(Adw.DialogPresentationMode.AUTO)
         self._repository = repository
+        self._parent = parent
         self._selected_format = None
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -142,11 +177,11 @@ class ExportFormatDialog(Adw.Dialog):
         self._open_file_save_dialog()
 
     def _open_file_save_dialog(self):
-        dialog = Gtk.FileDialog()
-        dialog.set_title("Save Export")
+        self._file_dialog = Gtk.FileDialog()
+        self._file_dialog.set_title("Save Export")
         ext = self._selected_format["extension"]
-        basename = f"ciak-export{ext}"
-        dialog.set_initial_name(basename)
+        basename = f"ciak-export-{date.today().isoformat()}{ext}"
+        self._file_dialog.set_initial_name(basename)
 
         filter_fmt = Gtk.FileFilter()
         filter_fmt.set_name(f"{self._selected_format['label']} (*{ext})")
@@ -157,17 +192,26 @@ class ExportFormatDialog(Adw.Dialog):
         all_filter.set_name("All files")
         all_filter.add_pattern("*")
         filters.append(all_filter)
-        dialog.set_filters(filters)
+        self._file_dialog.set_filters(filters)
 
         # Gtk.FileDialog.save() requires a Gtk.Window, not a Gtk.Native.
         # Always use the application's main window.
         window = _get_main_window()
-        dialog.save(window, None, self._on_file_save_response)
+        self._file_dialog.save(window, None, self._on_file_save_response)
 
     def _on_file_save_response(self, dialog, result):
         try:
             file = dialog.save_finish(result)
-        except GLib.Error:
+        except GLib.Error as e:
+            if e.code in (Gtk.DialogError.CANCELLED, Gtk.DialogError.DISMISSED):
+                self.close()
+                return
+            _show_error_dialog(
+                "Could not save file",
+                f"{e}\n\nA common cause is a Flatpak permission issue. "
+                "Try saving to a folder you can access.",
+                self._parent,
+            )
             self.close()
             return
 
@@ -181,35 +225,63 @@ class ExportFormatDialog(Adw.Dialog):
             _show_error_dialog(
                 "Cannot save to this location",
                 f"No local path resolved.\nURI: {file.get_uri()}",
+                self._parent,
             )
             self.close()
             return
 
+        ext = self._selected_format["extension"]
+        if not path.lower().endswith(ext):
+            path += ext
+
         parent_dir = os.path.dirname(path)
         if parent_dir and not os.path.isdir(parent_dir):
-            os.makedirs(parent_dir, exist_ok=True)
+            try:
+                os.makedirs(parent_dir, exist_ok=True)
+            except OSError as exc:
+                _show_error_dialog(
+                    "Could not create the export folder",
+                    str(exc),
+                    self._parent,
+                )
+                self.close()
+                return
 
+        fmt = self._selected_format
         self.close()
-
-        writer = self._selected_format["writer"]
 
         def _work():
             data = self._repository.get_export_data()
-            writer(data, path)
-            return path
+            count = fmt["writer"](data, path)
+            return path, count
 
         def _done(future):
             try:
-                saved_path = future.result()
-                _show_toast_on_main(
-                    Adw.Toast.new(f"Exported to {os.path.basename(saved_path)}")
-                )
+                saved_path, count = future.result()
             except Exception as exc:
                 tb_lines = traceback.format_exception(
                     type(exc), exc, exc.__traceback__
                 )
                 tb_text = "".join(tb_lines)
-                GLib.idle_add(_show_error_dialog, str(exc), tb_text)
+                _show_error_dialog(str(exc), tb_text, self._parent)
+                return
+
+            if count == 0:
+                toast = Adw.Toast.new(
+                    f"No items to export for {fmt['label']} — "
+                    "the file only contains headers."
+                )
+            else:
+                toast = Adw.Toast.new(
+                    f"Exported to {os.path.basename(saved_path)}"
+                )
+            toast.set_timeout(10)
+            toast.set_button_label("Open")
+            toast.connect(
+                "button-clicked",
+                lambda _t, p=saved_path: _reveal_file_in_file_manager(p),
+            )
+            _show_toast(toast, self._parent)
 
         future = threads.submit(_work)
         future.add_done_callback(lambda f: GLib.idle_add(_done, f))

@@ -54,19 +54,31 @@ def _trakt_row(item: dict, listing: str) -> dict:
     }
 
 
-def write_trakt_csv(data: ExportData | list[dict], path: str) -> None:
+def _rating_map(ratings: list[dict]) -> dict[tuple, dict]:
+    """Index ratings by (tmdb_id, media_type) for merging into watched rows."""
+    return {(r.get("tmdb_id"), r.get("media_type")): r for r in ratings}
+
+
+def write_trakt_csv(data: ExportData | list[dict], path: str) -> int:
     """Write data in Trakt-compatible CSV format.
 
     Accepts either an ExportData instance (exports all categories) or a
-    flat list of watched items.
+    flat list of watched items. Returns the number of rows written.
     """
     rows: list[dict] = []
     if isinstance(data, ExportData):
+        ratings_by_key = _rating_map(data.ratings)
         for item in data.watched:
-            rows.append(_trakt_row(item, "Watched Movies"))
+            row = _trakt_row(item, "Watched Movies")
+            rating = ratings_by_key.pop(
+                (item.get("tmdb_id"), item.get("media_type")), {}
+            ).get("rating")
+            if rating is not None:
+                row["Rating"] = rating
+            rows.append(row)
         for item in data.watchlist:
             rows.append(_trakt_row(item, "Watchlist"))
-        for item in data.ratings:
+        for item in ratings_by_key.values():
             rows.append(_trakt_row(item, "Ratings"))
         for item in data.collection:
             rows.append(_trakt_row(item, "Collection"))
@@ -78,6 +90,7 @@ def write_trakt_csv(data: ExportData | list[dict], path: str) -> None:
         writer = csv.DictWriter(f, fieldnames=_TRAKT_HEADERS)
         writer.writeheader()
         writer.writerows(rows)
+    return len(rows)
 
 
 # ── Letterboxd CSV ───────────────────────────────────────────────────
@@ -109,13 +122,27 @@ def _rating_to_letterboxd(rating: int | None) -> str:
     return str(rating / 2)
 
 
-def write_letterboxd_csv(data: ExportData | list[dict], path: str) -> None:
-    """Write watched items in Letterboxd-compatible CSV format."""
+def write_letterboxd_csv(data: ExportData | list[dict], path: str) -> int:
+    """Write watched/rated/watchlist items in Letterboxd CSV format.
+
+    Accepts either an ExportData instance (exports watched items, and any
+    items that are rated or on the watchlist) or a flat list of watched
+    items. Returns the number of rows written.
+    """
     rows: list[dict] = []
     if isinstance(data, ExportData):
+        ratings_by_key = _rating_map(data.ratings)
         for item in data.watched:
+            row = _letterboxd_row(item)
+            rating = ratings_by_key.pop(
+                (item.get("tmdb_id"), item.get("media_type")), {}
+            ).get("rating")
+            if rating is not None:
+                row["Rating"] = _rating_to_letterboxd(rating)
+            rows.append(row)
+        for item in ratings_by_key.values():
             rows.append(_letterboxd_row(item))
-        for item in data.ratings:
+        for item in data.watchlist:
             rows.append(_letterboxd_row(item))
     else:
         for item in data:
@@ -125,6 +152,7 @@ def write_letterboxd_csv(data: ExportData | list[dict], path: str) -> None:
         writer = csv.DictWriter(f, fieldnames=_LETTERBOXD_HEADERS)
         writer.writeheader()
         writer.writerows(rows)
+    return len(rows)
 
 
 # ── IMDb CSV ─────────────────────────────────────────────────────────
@@ -155,18 +183,25 @@ def _imdb_row(item: dict, position: int) -> dict:
     }
 
 
-def write_imdb_csv(data: ExportData | list[dict], path: str) -> None:
-    """Write data in IMDb-compatible CSV format."""
+def write_imdb_csv(data: ExportData | list[dict], path: str) -> int:
+    """Write data in IMDb-compatible CSV format. Returns row count."""
     rows: list[dict] = []
     position = 1
     if isinstance(data, ExportData):
+        ratings_by_key = _rating_map(data.ratings)
         for item in data.watched:
-            rows.append(_imdb_row(item, position))
+            rating = ratings_by_key.pop(
+                (item.get("tmdb_id"), item.get("media_type")), {}
+            ).get("rating")
+            merged = dict(item)
+            if rating is not None:
+                merged["rating"] = rating
+            rows.append(_imdb_row(merged, position))
             position += 1
         for item in data.watchlist:
             rows.append(_imdb_row(item, position))
             position += 1
-        for item in data.ratings:
+        for item in ratings_by_key.values():
             rows.append(_imdb_row(item, position))
             position += 1
         for item in data.collection:
@@ -181,6 +216,7 @@ def write_imdb_csv(data: ExportData | list[dict], path: str) -> None:
         writer = csv.DictWriter(f, fieldnames=_IMDB_HEADERS)
         writer.writeheader()
         writer.writerows(rows)
+    return len(rows)
 
 
 # ── JSON (full structured dump) ──────────────────────────────────────
@@ -194,8 +230,8 @@ def _serialize_item(item: dict) -> dict:
     return out
 
 
-def write_json(data: ExportData, path: str) -> None:
-    """Write all user data as a structured JSON file."""
+def write_json(data: ExportData, path: str) -> int:
+    """Write all user data as a structured JSON file. Returns item count."""
     payload = {
         "exported_at": _ts_to_datetime(int(time.time())),
         "watched": [_serialize_item(i) for i in data.watched],
@@ -205,3 +241,6 @@ def write_json(data: ExportData, path: str) -> None:
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
+    return sum(
+        len(v) for v in (data.watched, data.watchlist, data.ratings, data.collection)
+    )
