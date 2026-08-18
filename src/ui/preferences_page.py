@@ -252,25 +252,27 @@ class PreferencesPage(Adw.PreferencesDialog):
         )
         page.set_banner(self.advanced_banner)
 
-        self._build_tmdb_group(page)
         self._build_integrations_group(page)
         self._build_import_export_group(page)
         self._build_cache_group(page)
         self._build_data_management_group(page)
         self._build_setup_group(page)
 
-    def _build_tmdb_group(self, page):
-        tmdb_group = Adw.PreferencesGroup()
-        tmdb_group.set_title("TMDB API")
-        tmdb_group.set_description("Configure your The Movie Database API key")
-        page.add(tmdb_group)
+    def _build_integrations_group(self, page):
+        integrations_group = Adw.PreferencesGroup()
+        integrations_group.set_title("Integrations")
+        integrations_group.set_description(
+            "The TMDB API key is required — without it Ciak cannot "
+            "search or match titles"
+        )
+        page.add(integrations_group)
 
         key_row = Adw.PasswordEntryRow()
-        key_row.set_title("API Key")
+        key_row.set_title("TMDB API Key")
         current_key = self._settings.get_string("tmdb-api-key")
         key_row.set_text(current_key)
         key_row.connect("changed", self._on_tmdb_key_changed)
-        tmdb_group.add(key_row)
+        integrations_group.add(key_row)
 
         link_row = Adw.ActionRow()
         link_row.set_title("Get your API key at themoviedb.org")
@@ -284,12 +286,12 @@ class PreferencesPage(Adw.PreferencesDialog):
         link_row.add_suffix(
             Gtk.Image.new_from_icon_name("web-browser-symbolic")
         )
-        tmdb_group.add(link_row)
+        integrations_group.add(link_row)
 
-    def _build_integrations_group(self, page):
-        integrations_group = Adw.PreferencesGroup()
-        integrations_group.set_title("Integrations")
-        page.add(integrations_group)
+        separator = Gtk.Separator()
+        separator.set_margin_top(8)
+        separator.set_margin_bottom(8)
+        integrations_group.add(separator)
 
         trakt_row = Adw.ActionRow()
         trakt_row.set_title("Trakt Integration")
@@ -299,16 +301,13 @@ class PreferencesPage(Adw.PreferencesDialog):
 
     def _build_import_export_group(self, page):
         import_export_group = Adw.PreferencesGroup()
-        import_export_group.set_title("Import & Export")
+        import_export_group.set_title("Import and Export")
         import_export_group.set_description("Move your library data in and out of Ciak")
         page.add(import_export_group)
 
         export_row = Adw.ActionRow()
         export_row.set_title("Export Data")
-        export_row.set_subtitle(
-            "Export your watchlist, watched history, ratings, and "
-            "collection as CSV or JSON"
-        )
+        export_row.set_subtitle("Your library as a CSV or JSON file")
         export_row.set_activatable(False)
         export_btn = Gtk.Button(icon_name="document-send-symbolic")
         export_btn.set_tooltip_text("Export")
@@ -320,10 +319,7 @@ class PreferencesPage(Adw.PreferencesDialog):
 
         import_row = Adw.ActionRow()
         import_row.set_title("Import Data")
-        import_row.set_subtitle(
-            "Import watchlist, watched history, and ratings from a "
-            "Trakt, Letterboxd, or IMDb CSV, or a JSON file"
-        )
+        import_row.set_subtitle("CSV or JSON from Trakt, Letterboxd, IMDb")
         import_row.set_activatable(False)
         import_btn = Gtk.Button(icon_name="document-open-symbolic")
         import_btn.set_tooltip_text("Import")
@@ -335,7 +331,7 @@ class PreferencesPage(Adw.PreferencesDialog):
 
     def _build_cache_group(self, page):
         cache_group = Adw.PreferencesGroup()
-        cache_group.set_title("Cache")
+        cache_group.set_title("Poster Cache")
         cache_group.set_description("Poster images stored on disk")
         page.add(cache_group)
 
@@ -380,7 +376,7 @@ class PreferencesPage(Adw.PreferencesDialog):
 
     def _build_data_management_group(self, page):
         data_management_group = Adw.PreferencesGroup()
-        data_management_group.set_title("Data Management")
+        data_management_group.set_title("Local Data")
         data_management_group.set_description(
             "Erasing the local database is permanent and cannot be undone"
         )
