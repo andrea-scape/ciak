@@ -7,7 +7,7 @@ import urllib.parse
 import sqlite3
 from ..domain.models import Movie, Show
 from ..domain.exceptions import NetworkError
-from .poster import create_poster, create_avatar, load_avatar, POSTER_SLOTS
+from .poster import create_poster, create_avatar, load_poster, load_avatar, POSTER_SLOTS
 from .painting import FixedPaintable, _load_texture_sync
 from .anim import fade_in
 
@@ -62,6 +62,7 @@ class DetailPage(Gtk.Box):
         content_box.append(self.progress_box)
 
         self.poster_box, self.poster_area = create_poster(320, 480, "detail-poster")
+        load_poster(self.item.poster_url, self.poster_area)
         top_box.append(self.poster_box)
 
         info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -693,13 +694,19 @@ class DetailPage(Gtk.Box):
 
     def _update_action_sensitivity(self):
         """Disable actions that claim a title was seen while it is not
-        released yet (future movie premiere or show with no aired episodes)."""
+        released yet (future movie premiere or show with no aired episodes).
+        Watched and watchlist stay clickable — clicking one resolves the
+        other (two-way mutual exclusivity)."""
         if self.media_type == "movie":
             future = self._movie_release_in_future()
             self.watched_btn.set_sensitive(not future)
+            self.watchlist_btn.set_sensitive(not future)
             self.rate_btn.set_sensitive(not future)
         else:
-            self.watched_btn.set_sensitive(not self._show_has_no_aired_episodes())
+            has_no_eps = self._show_has_no_aired_episodes()
+            self.watched_btn.set_sensitive(not has_no_eps)
+            self.watchlist_btn.set_sensitive(True)
+            self.rate_btn.set_sensitive(True)
 
     def _populate_season_episodes(self, season, expander, state, episodes):
         ep_checks = state["ep_checks"]
@@ -930,32 +937,11 @@ class DetailPage(Gtk.Box):
             button.set_child(card)
             flow.append(button)
 
-            if item.poster_url:
-                GLib.Thread.new(
-                    "related-poster",
-                    self._load_and_apply_poster,
-                    item.poster_url,
-                    paintable,
-                    picture,
-                )
+            picture._fixed_paintable = paintable
+            load_poster(item.poster_url, picture)
 
         self.related_section.set_visible(True)
         self.related_revealer.set_reveal_child(True)
-        return False
-
-    def _load_and_apply_poster(self, url, paintable, picture):
-        with POSTER_SLOTS:
-            try:
-                pixbuf = _load_texture_sync(url)
-                if pixbuf:
-                    texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-                    GLib.idle_add(self._apply_poster_texture, paintable, picture, texture)
-            except GLib.Error:
-                pass
-
-    def _apply_poster_texture(self, paintable, picture, texture):
-        paintable.set_texture(texture)
-        fade_in(picture, 300)
         return False
 
     def _on_related_click(self, card, item, mtype):
@@ -1024,8 +1010,7 @@ class DetailPage(Gtk.Box):
             card.append(info)
             flow.append(card)
 
-            if m.photo_url:
-                load_avatar(m.photo_url, avatar_paintable, avatar)
+            load_avatar(m.photo_url, avatar_paintable, avatar)
 
         self.cast_section.set_visible(True)
         self.cast_revealer.set_reveal_child(True)
@@ -1052,6 +1037,9 @@ class DetailPage(Gtk.Box):
                 self.user_repo.remove_from_watchlist(self.item.tmdb_id, self.media_type)
             else:
                 self.user_repo.add_to_watchlist(self.item.tmdb_id, self.media_type)
+                if self._is_watched:
+                    self._do_unmark_watched()
+                    self._is_watched = False
             GLib.idle_add(self._watchlist_done, btn)
         except sqlite3.Error:
             GLib.idle_add(btn.set_sensitive, True)
@@ -1059,8 +1047,12 @@ class DetailPage(Gtk.Box):
     def _watchlist_done(self, btn):
         self._in_watchlist = not self._in_watchlist
         self._set_watchlist_ui()
+        self._set_watched_ui()
         btn.set_sensitive(True)
         if self.main_page is not None:
+            # Adding an already-watched title unmarks it, so history must
+            # be refreshed alongside watchlist/profile.
+            self.main_page.invalidate_page("history")
             self.main_page.invalidate_page("watchlist")
             self.main_page.invalidate_page("profile")
         return False
@@ -1112,6 +1104,9 @@ class DetailPage(Gtk.Box):
             self._mark_all_watched_show()
         else:
             self.user_repo.mark_watched(self.item.tmdb_id, self.media_type)
+        if self._in_watchlist:
+            self.user_repo.remove_from_watchlist(self.item.tmdb_id, self.media_type)
+            self._in_watchlist = False
 
     def _do_unmark_watched(self):
         if self.media_type == "show":
@@ -1167,6 +1162,7 @@ class DetailPage(Gtk.Box):
 
     def _watch_done(self, btn):
         self._recompute_is_watched()
+        self._set_watchlist_ui()
         self._update_action_sensitivity()
         if self.media_type == "show":
             for expander in getattr(self, "_season_expanders", []):
@@ -1221,17 +1217,22 @@ class DetailPage(Gtk.Box):
 
     def _do_rate_mark_watched(self):
         try:
-            if self.media_type == "show":
-                self._mark_all_watched_show()
-            else:
-                self.user_repo.mark_watched(self.item.tmdb_id, self.media_type)
-            self._is_watched = True
+            if not self._is_watched:
+                if self.media_type == "show":
+                    self._mark_all_watched_show()
+                else:
+                    self.user_repo.mark_watched(self.item.tmdb_id, self.media_type)
+                self._is_watched = True
+            if self._in_watchlist:
+                self.user_repo.remove_from_watchlist(self.item.tmdb_id, self.media_type)
+                self._in_watchlist = False
             GLib.idle_add(self._rate_watch_done)
         except (sqlite3.Error, NetworkError):
             GLib.idle_add(self._update_action_sensitivity)
 
     def _rate_watch_done(self):
         self._update_action_sensitivity()
+        self._set_watchlist_ui()
         self._set_watched_ui()
         if self.media_type == "show":
             for expander in getattr(self, "_season_expanders", []):

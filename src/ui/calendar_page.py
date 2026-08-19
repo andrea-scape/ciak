@@ -85,11 +85,18 @@ class CalendarPage(Gtk.Box):
         self._upcoming_btn.add_css_class("cal-upcoming-btn")
         self._upcoming_btn.connect("clicked", self._on_upcoming_clicked)
 
+        self._today_btn = Gtk.Button(label="Today")
+        self._today_btn.add_css_class("flat")
+        self._today_btn.add_css_class("cal-today-btn")
+        self._today_btn.connect("clicked", self._on_today_clicked)
+        self._today_btn.set_visible(False)
+
         nav.append(self._prev_btn)
         nav.append(self._prev_label)
         nav.append(month_col)
         nav.append(self._next_label)
         nav.append(self._next_btn)
+        nav.append(self._today_btn)
         nav.append(self._upcoming_btn)
 
         self._build_popover()
@@ -120,6 +127,15 @@ class CalendarPage(Gtk.Box):
 
     def _on_upcoming_clicked(self, btn):
         self._popover.popup()
+
+    def _on_today_clicked(self, _btn):
+        today = datetime.date.today()
+        if self._year == today.year and self._month == today.month:
+            return
+        self._year = today.year
+        self._month = today.month
+        self._update_nav_labels()
+        self._render_month()
 
     # ------------------------------------------------------------------
     # Body: calendar grid
@@ -342,8 +358,7 @@ class CalendarPage(Gtk.Box):
                 poster_btn.add_css_class("cal-poster-btn")
                 box_, picture = create_poster(84, 126, "cal-poster")
                 poster_btn.set_child(box_)
-                if show.poster_url:
-                    load_poster(show.poster_url, picture)
+                load_poster(show.poster_url, picture)
                 poster_btn.connect("clicked", self._on_show_clicked, show)
                 content_box.append(poster_btn)
             else:
@@ -454,6 +469,11 @@ class CalendarPage(Gtk.Box):
         self._next_label.set_markup(
             f'<span alpha="60%">{MONTHS_SHORT[next_m - 1]}</span>'
         )
+
+        today = datetime.date.today()
+        is_current = (self._year == today.year and self._month == today.month)
+        if hasattr(self, "_today_btn") and self._today_btn is not None:
+            self._today_btn.set_visible(not is_current)
 
     def _set_mode(self, mode):
         pass

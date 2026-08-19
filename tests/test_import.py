@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 
 from src.data.importers import (
     GenericJSON,
@@ -17,6 +18,8 @@ from src.data.importers import (
     select_parser,
 )
 from src.data.local.repository import LocalMediaRepository
+from src.data.tmdb.service import TmdbMetadataService
+from src.domain.models import Movie
 
 
 def _write(path, content):
@@ -642,6 +645,130 @@ class RepositoryImportTest(unittest.TestCase):
             ])
             existing = repo.get_existing_ids("watched_items")
             self.assertIn(550, existing)
+
+
+class ServiceRefreshTest(unittest.TestCase):
+    """get_movie/get_show refresh bypasses the cache and overwrites rows."""
+
+    def _make_service(self, cached_poster=False):
+        client = mock.Mock()
+        client._image_url.side_effect = lambda path, size=None: path
+        client.get_movie.return_value = {
+            "id": 550, "title": "Fight Club", "release_date": "1999-10-15",
+            "poster_path": "/poster550.jpg", "overview": "o",
+            "runtime": 139, "vote_average": 8.4, "vote_count": 100,
+            "imdb_id": "tt0137523",
+            "genres": [{"id": 18, "name": "Drama"}],
+            "belongs_to_collection": None,
+            "tagline": "t", "certification": "R", "budget": 1, "revenue": 2,
+        }
+        cache = mock.Mock()
+        if cached_poster:
+            cached = Movie(
+                tmdb_id=550, title="Fight Club", year=1999,
+                poster_url="cached-poster.jpg",
+            )
+        else:
+            cached = Movie(tmdb_id=550, title="Fight Club", year=1999)
+        cache.get_media.return_value = cached
+        return TmdbMetadataService(client, cache), client
+
+    def test_plain_get_movie_uses_cache(self):
+        service, client = self._make_service(cached_poster=True)
+        movie = service.get_movie(550)
+        client.get_movie.assert_not_called()
+        self.assertEqual(movie.poster_url, "cached-poster.jpg")
+
+    def test_refresh_bypasses_cache(self):
+        service, client = self._make_service(cached_poster=True)
+        movie = service.get_movie(550, refresh=True)
+        client.get_movie.assert_called_once_with(550)
+        self.assertEqual(movie.tmdb_id, 550)
+        self.assertEqual(movie.poster_url, "/poster550.jpg")
+
+    def test_refresh_overwrites_cache(self):
+        service, client = self._make_service(cached_poster=True)
+        service.get_movie(550, refresh=True)
+        put = [c for c in service._cache.put_media.call_args_list
+               if c.args and c.args[0].poster_url == "/poster550.jpg"]
+        self.assertEqual(len(put), 1)
+
+
+class BackfillTest(unittest.TestCase):
+    def test_backfill_missing_posters_persists_urls(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = os.path.join(d, "t.sqlite")
+            repo = LocalMediaRepository(db)
+            repo.initialize()
+            repo.import_watched([
+                {"tmdb_id": 550, "media_type": "movie", "title": "Fight Club",
+                 "year": 1999, "watched_at": 1691971200},
+                {"tmdb_id": 5001, "media_type": "episode",
+                 "title": "Show", "show_tmdb_id": 999, "season_number": 1,
+                 "episode_number": 1, "watched_at": 1691971200},
+            ])
+
+            from src.data.local.cache import MetadataCache
+            from src.ui import import_dialog
+
+            cache = MetadataCache(db)
+            client = mock.Mock()
+            client._image_url.side_effect = lambda path, size=None: path
+            client.get_movie.return_value = {
+                "id": 550, "title": "Fight Club",
+                "release_date": "1999-10-15", "poster_path": "/550.jpg",
+                "overview": "o", "runtime": 139, "vote_average": 8.4,
+                "vote_count": 100, "genres": [],
+                "belongs_to_collection": None,
+            }
+            client.get_tv.return_value = {
+                "id": 999, "name": "Show", "first_air_date": "2020-01-01",
+                "poster_path": "/999.jpg", "overview": "o",
+                "vote_average": 8.0, "vote_count": 10, "genres": [],
+                "status": "Returning Series",
+            }
+            service = TmdbMetadataService(client, cache)
+
+            with mock.patch.object(
+                import_dialog, "_prefetch_poster", return_value=True
+            ) as prefetch:
+                done = import_dialog.backfill_missing_posters(repo, service)
+            self.assertEqual(done, 2)
+            self.assertEqual(prefetch.call_count, 2)
+            self.assertEqual(repo.get_media_missing_posters(), [])
+
+            conn = repo._ensure_conn()
+            for tmdb_id in (550, 999):
+                url = conn.execute(
+                    "SELECT poster_url FROM media_items WHERE tmdb_id=?",
+                    (tmdb_id,),
+                ).fetchone()[0]
+                self.assertTrue(url, f"poster_url missing for {tmdb_id}")
+
+
+class TraktExportWatchlistShowTest(unittest.TestCase):
+    def test_watchlist_show_media_type_inferred(self):
+        with tempfile.TemporaryDirectory() as d:
+            zip_path = os.path.join(d, "export.zip")
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                zf.writestr(
+                    "lists-watchlist.json",
+                    json.dumps([{
+                        "type": "show",
+                        "listed_at": "2026-07-30T21:36:03.000Z",
+                        "show": {
+                            "title": "Neuromancer",
+                            "year": 2027,
+                            "ids": {"tmdb": 215528, "slug": "neuromancer"}
+                        }
+                    }])
+                )
+            items = TraktExport.parse(zip_path)
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0].media_type, "show")
+            self.assertEqual(items[0].tmdb_id, 215528)
+            self.assertEqual(items[0].title, "Neuromancer")
+            self.assertEqual(items[0].target, "watchlist")
 
 
 if __name__ == "__main__":

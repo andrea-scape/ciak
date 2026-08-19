@@ -69,8 +69,20 @@ class LocalMediaRepository:
     ) -> None:
         conn = self._ensure_conn()
         now = int(time.time())
+        # Delete any existing row for the same logical key first.  The PK
+        # includes nullable episode columns, and SQLite's NULL != NULL
+        # semantics let INSERT OR REPLACE clone movie/show rows, so a plain
+        # replace cannot be relied on to dedupe.
         conn.execute(
-            "INSERT OR REPLACE INTO watched_items "
+            "DELETE FROM watched_items "
+            "WHERE tmdb_id = ? AND media_type = ? "
+            "AND COALESCE(show_tmdb_id, -1) = COALESCE(?, -1) "
+            "AND COALESCE(season_number, -1) = COALESCE(?, -1) "
+            "AND COALESCE(episode_number, -1) = COALESCE(?, -1)",
+            (tmdb_id, media_type, show_tmdb_id, season_number, episode_number),
+        )
+        conn.execute(
+            "INSERT INTO watched_items "
             "(tmdb_id, media_type, show_tmdb_id, season_number, episode_number, watched_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (
@@ -121,14 +133,19 @@ class LocalMediaRepository:
         return row is not None
 
     def get_watched_list(self, media_type: str | None = None) -> list[dict]:
-        """Return all watched items as dicts with tmdb_id, title, etc."""
+        """Return all watched items as dicts with tmdb_id, title, etc.
+
+        Grouped by the fully-populated logical key so legacy rows produced
+        before the dedupe migration (or by any path relying on NULL PK
+        columns) never render as duplicate cards.
+        """
         conn = self._ensure_conn()
         query = (
             "SELECT w.tmdb_id, w.media_type, w.show_tmdb_id, w.season_number, "
-            "w.episode_number, w.watched_at, "
+            "w.episode_number, MAX(w.watched_at) AS watched_at, "
             "m.title, m.year, m.poster_url, m.imdb_id, m.runtime "
             "FROM watched_items w "
-            "LEFT JOIN media_items m ON w.tmdb_id = m.tmdb_id "
+            "LEFT JOIN media_items m ON m.tmdb_id = COALESCE(w.show_tmdb_id, w.tmdb_id) "
         )
         params: tuple = ()
         if media_type == "movie":
@@ -136,7 +153,13 @@ class LocalMediaRepository:
             params = ("movie",)
         elif media_type == "show":
             query += "WHERE w.media_type IN ('show', 'episode')"
-        query += " ORDER BY w.watched_at DESC"
+        query += (
+            " GROUP BY w.tmdb_id, w.media_type, "
+            "COALESCE(w.show_tmdb_id, -1), "
+            "COALESCE(w.season_number, -1), "
+            "COALESCE(w.episode_number, -1)"
+        )
+        query += " ORDER BY watched_at DESC"
         rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
@@ -527,6 +550,15 @@ class LocalMediaRepository:
             f"SELECT DISTINCT tmdb_id FROM {table}"
         ).fetchall()
         return {int(r[0]) for r in rows}
+
+    def get_media_missing_posters(self) -> list[tuple[int, str]]:
+        """Return (tmdb_id, media_type) for cached media without a poster."""
+        conn = self._ensure_conn()
+        rows = conn.execute(
+            "SELECT tmdb_id, media_type FROM media_items "
+            "WHERE poster_url IS NULL OR poster_url = ''"
+        ).fetchall()
+        return [(int(r[0]), str(r[1])) for r in rows]
 
     def _upsert_media_meta(
         self, conn, tmdb_id: int, media_type: str, title: str,

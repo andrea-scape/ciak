@@ -4,9 +4,14 @@ from unittest import mock
 import urllib.error
 import urllib.request
 
-from gi.repository import GLib
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import GLib, Gtk, Adw
 
 from src.ui import painting
+from src.ui import poster
 
 
 class PaintingFallbackTest(unittest.TestCase):
@@ -32,6 +37,40 @@ class PaintingFallbackTest(unittest.TestCase):
             self.assertIsNone(
                 painting._load_texture_sync("https://example.com/poster.jpg")
             )
+
+
+class PlaceholderPixbufTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            Gtk.init()
+            Adw.init()
+        except TypeError:
+            pass
+
+    def test_poster_placeholder_pixbuf_matches_paintable_size(self):
+        paintable = painting.FixedPaintable(200, 300)
+        pb = poster._placeholder_pixbuf(paintable, "poster")
+        self.assertEqual(pb.get_width(), 200)
+        self.assertEqual(pb.get_height(), 300)
+
+    def test_avatar_placeholder_pixbuf_matches_paintable_size(self):
+        paintable = painting.FixedPaintable(96, 96)
+        pb = poster._placeholder_pixbuf(paintable, "avatar")
+        self.assertEqual(pb.get_width(), 96)
+        self.assertEqual(pb.get_height(), 96)
+
+    def test_placeholder_pixbuf_is_not_flat_petrol(self):
+        # Regression: the placeholder used to be a solid flat fill; the
+        # replacement must actually vary (gradient/icon) across the surface.
+        paintable = painting.FixedPaintable(100, 100)
+        pb = poster._placeholder_pixbuf(paintable, "poster")
+        data = pb.get_pixels()
+        stride = pb.get_rowstride()
+        offsets = [2 * stride + 2 * 3, 98 * stride + 2 * 3,
+                   2 * stride + 98 * 3, 50 * stride + 50 * 3]
+        samples = [bytes(data[o:o + 3]) for o in offsets]
+        self.assertGreater(len(set(samples)), 1)
 
 
 if __name__ == "__main__":

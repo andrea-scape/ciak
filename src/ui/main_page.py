@@ -201,7 +201,7 @@ class MainPage(Adw.Bin):
                 dialog.set_visible_page_name(page_name)
             dialog.present(self.win)
             return
-        dialog = PreferencesPage(self.win)
+        dialog = PreferencesPage(self.win, main_page=self)
         self._prefs_dialog = dialog
         dialog.connect("closed", self._on_prefs_dialog_closed)
         if page_name:
@@ -593,8 +593,10 @@ class MainPage(Adw.Bin):
             _apply_and_fade_in()
         return False
 
-    def invalidate_page(self, page_id):
+    def invalidate_page(self, page_id, reload_now=False):
         self._stale_pages.add(page_id)
+        if reload_now and page_id == self._current_page:
+            self._refresh_if_stale(page_id)
 
     def _refresh_if_stale(self, page_id):
         if page_id not in self._stale_pages:

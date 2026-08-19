@@ -6,8 +6,8 @@ gi.require_version("Gdk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gtk, GLib, Gdk, Pango
 
-from .painting import FixedPaintable, _load_texture_sync
-from .poster import POSTER_SLOTS
+from .painting import FixedPaintable
+from .poster import POSTER_SLOTS, load_poster
 from .anim import fade_in
 
 
@@ -25,6 +25,24 @@ def config_grid(grid):
     grid.set_min_children_per_line(2)
     grid.set_max_children_per_line(6)
     grid.set_selection_mode(Gtk.SelectionMode.NONE)
+
+
+def media_type_label(item):
+    """Caption under a poster.  Episodes get a range/position suffix, e.g.
+    "TV Show - S01E01 to S01E03" for a day group, "TV Show - S01E01" for a
+    single episode, plain "TV Show"/"Movie" otherwise."""
+    if item.media_type == "movie":
+        return "Movie"
+    season = getattr(item, "season_number", None)
+    episode = getattr(item, "episode_number", None)
+    if season is None or episode is None:
+        return "TV Show"
+    start = f"S{season:02d}E{episode:02d}"
+    end_season = getattr(item, "end_season_number", None)
+    end_episode = getattr(item, "end_episode_number", None)
+    if end_episode is not None and (end_season, end_episode) != (season, episode):
+        return f"TV Show - {start} to S{end_season:02d}E{end_episode:02d}"
+    return f"TV Show - {start}"
 
 
 def make_media_card(item, main_page=None, footer=None):
@@ -83,9 +101,7 @@ def make_media_card(item, main_page=None, footer=None):
         year.set_xalign(0)
         info.append(year)
 
-    mtype = Gtk.Label(
-        label="TV Show" if item.media_type == "show" else "Movie"
-    )
+    mtype = Gtk.Label(label=media_type_label(item))
     mtype.add_css_class("caption")
     mtype.add_css_class("dim-label")
     mtype.set_xalign(0)
@@ -107,27 +123,7 @@ def make_media_card(item, main_page=None, footer=None):
 
     button._paintable = paintable
     button._picture = picture
-    if item.poster_url:
-        GLib.Thread.new(
-            "poster-card",
-            _load_and_apply,
-            item.poster_url,
-            paintable,
-            picture,
-        )
+    picture._fixed_paintable = paintable
+    load_poster(item.poster_url, picture)
 
     return button
-
-
-def _load_and_apply(url, paintable, picture):
-    with POSTER_SLOTS:
-        pixbuf = _load_texture_sync(url)
-        if pixbuf:
-            texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-            GLib.idle_add(_apply_texture, paintable, picture, texture)
-
-
-def _apply_texture(paintable, picture, texture):
-    paintable.set_texture(texture)
-    fade_in(picture, 300)
-    return False

@@ -1,5 +1,6 @@
-"""History: watchlist-style gallery of watched movies and fully watched shows."""
+"""History: watchlist-style gallery of watched movies and watched episodes."""
 
+import datetime
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -8,6 +9,39 @@ from types import SimpleNamespace
 from gi.repository import Gtk, Adw
 
 from .watchlist_page import WatchlistPage
+
+
+def group_episodes_by_day(rows):
+    """Group watched episode rows by (show, local day) and build one card
+    per group spanning the first to the last episode watched that day.
+    Rows with no episode info (whole-show marks) pass through unchanged.
+    """
+    groups = {}
+    for row in rows:
+        show_id = row["show_tmdb_id"] or row["tmdb_id"]
+        day = datetime.date.fromtimestamp(row["watched_at"])
+        groups.setdefault((show_id, day), []).append(row)
+
+    cards = []
+    for (show_id, day), eps in groups.items():
+        eps = sorted(eps, key=lambda e: (
+            e["season_number"] or 0, e["episode_number"] or 0
+        ))
+        first = eps[0]
+        last = eps[-1]
+        cards.append(SimpleNamespace(
+            tmdb_id=show_id,
+            title=first["title"] or "Unknown",
+            year=first.get("year"),
+            poster_url=first.get("poster_url"),
+            media_type="show",
+            watched_at=max(e["watched_at"] for e in eps),
+            season_number=first["season_number"],
+            episode_number=first["episode_number"],
+            end_season_number=last["season_number"],
+            end_episode_number=last["episode_number"],
+        ))
+    return cards
 
 
 class HistoryPage(WatchlistPage):
@@ -24,25 +58,8 @@ class HistoryPage(WatchlistPage):
             movies = []
 
         if mode in ("all", "shows"):
-            shows = self._get_fully_watched_shows()
+            shows = group_episodes_by_day(self.user_repo.get_watched_list("show"))
         else:
             shows = []
 
         return movies, shows
-
-    def _get_fully_watched_shows(self):
-        """Return shows where every aired episode is watched."""
-        fully_watched = []
-        for show_id in self._get_fully_watched_show_ids():
-            meta = self.user_repo.get_media_item(show_id)
-            if not meta:
-                continue
-            fully_watched.append(SimpleNamespace(
-                tmdb_id=show_id,
-                title=meta["title"],
-                year=meta.get("year"),
-                poster_url=meta.get("poster_url"),
-                media_type="show",
-                watched_at=self.user_repo.get_latest_watched_at_for_show(show_id),
-            ))
-        return fully_watched

@@ -26,10 +26,11 @@ DEFAULT_PAGES = [
 class PreferencesPage(Adw.PreferencesDialog):
     """Tabbed preferences dialog."""
 
-    def __init__(self, win):
+    def __init__(self, win, main_page=None):
         super().__init__()
         self.win = win
         self._settings = win.settings
+        self._main_page = main_page
 
         self.set_title("Preferences")
         self.set_presentation_mode(Adw.DialogPresentationMode.FLOATING)
@@ -342,6 +343,19 @@ class PreferencesPage(Adw.PreferencesDialog):
         self.clear_cache_row.add_suffix(clear_btn)
         cache_group.add(self.clear_cache_row)
 
+        backfill_row = Adw.ActionRow()
+        backfill_row.set_title("Re-fetch Missing Posters")
+        backfill_row.set_subtitle(
+            "Download posters for any media items currently missing artwork"
+        )
+        backfill_row.set_activatable(False)
+        backfill_btn = Gtk.Button(label="Re-fetch")
+        backfill_btn.set_valign(Gtk.Align.CENTER)
+        backfill_btn.add_css_class("flat")
+        backfill_btn.connect("clicked", self._on_backfill_clicked)
+        backfill_row.add_suffix(backfill_btn)
+        cache_group.add(backfill_row)
+
         self.cache_size_adjustment = Gtk.Adjustment.new(
             self._settings.get_int("cache-max-size-mb"), 50, 4096, 50, 500, 0
         )
@@ -425,6 +439,34 @@ class PreferencesPage(Adw.PreferencesDialog):
             self._update_cache_size()
             self.add_toast(Adw.Toast.new("Cache cleared"))
 
+    def _on_backfill_clicked(self, btn):
+        from ..main import CiakApp
+        from .import_dialog import backfill_missing_posters
+        from .. import threads
+        app = CiakApp.get_default()
+        if not app or not app._user_repo or not app._metadata_service:
+            self.add_toast(Adw.Toast.new("Service not available"))
+            return
+        btn.set_sensitive(False)
+        btn.set_label("Fetching…")
+
+        def _work():
+            try:
+                backfill_missing_posters(app._user_repo, app._metadata_service)
+            except Exception:
+                pass
+
+        def _done(future):
+            btn.set_sensitive(True)
+            btn.set_label("Re-fetch")
+            self.add_toast(Adw.Toast.new("Poster backfill complete"))
+            if self._main_page:
+                for page_id in ("watchlist", "history", "calendar", "profile"):
+                    self._main_page.invalidate_page(page_id, reload_now=True)
+
+        future = threads.submit(_work)
+        future.add_done_callback(lambda f: GLib.idle_add(_done, f))
+
     def _on_delete_db_clicked(self, _btn):
         dialog = Adw.AlertDialog.new(
             "Delete Local Database?",
@@ -486,7 +528,9 @@ class PreferencesPage(Adw.PreferencesDialog):
     def _on_import_clicked(self, _btn):
         from ..main import CiakApp
         app = CiakApp.get_default()
-        show_import_dialog(self, app._user_repo, app._metadata_service)
+        show_import_dialog(
+            self, app._user_repo, app._metadata_service, self._main_page
+        )
 
     def _on_sidebar_mode_changed(self, row, _gparam):
         value = "collapse" if row.get_selected() == 0 else "remember"

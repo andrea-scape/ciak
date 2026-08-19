@@ -107,14 +107,15 @@ def _reveal_file_in_file_manager(path: str) -> None:
 
 
 def _show_error_dialog(
-    message: str, tb_text: str, parent: Gtk.Widget | None = None
+    message: str, tb_text: str, parent: Gtk.Widget | None = None,
+    title: str = "Export Failed",
 ) -> None:
     """Show an error dialog with the full error and a Copy button."""
     target = parent if parent is not None else _get_main_window()
     if target is None:
         return
 
-    dialog = Adw.AlertDialog.new("Export Failed", message)
+    dialog = Adw.AlertDialog.new(title, message)
     dialog.add_response("copy", "Copy Error")
     dialog.add_response("close", "Close")
     dialog.set_default_response("close")

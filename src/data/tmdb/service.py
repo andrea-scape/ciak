@@ -94,10 +94,11 @@ class TmdbMetadataService:
     # Detail (cache-first)
     # ------------------------------------------------------------------
 
-    def get_movie(self, tmdb_id: int) -> Movie:
-        cached = self._cache.get_media(tmdb_id)
-        if cached is not None:
-            return cached
+    def get_movie(self, tmdb_id: int, refresh: bool = False) -> Movie:
+        if not refresh:
+            cached = self._cache.get_media(tmdb_id)
+            if cached is not None:
+                return cached
         try:
             raw = self._client.get_movie(tmdb_id)
         except (httpx.HTTPError, ValueError) as exc:
@@ -106,10 +107,11 @@ class TmdbMetadataService:
         self._cache.put_media(movie)
         return movie
 
-    def get_show(self, tmdb_id: int) -> Show:
-        cached = self._cache.get_media(tmdb_id)
-        if cached is not None:
-            return cached
+    def get_show(self, tmdb_id: int, refresh: bool = False) -> Show:
+        if not refresh:
+            cached = self._cache.get_media(tmdb_id)
+            if cached is not None:
+                return cached
         try:
             raw = self._client.get_tv(tmdb_id)
         except (httpx.HTTPError, ValueError) as exc:

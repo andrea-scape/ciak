@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import traceback
+import urllib.request
 
 import gi
 
@@ -12,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, Gio, GLib
 
 from .. import config
+from .. import poster_cache
 from .. import threads
 from ..data.importers import (
     ImportParseError,
@@ -31,6 +33,9 @@ _STATUS_COLORS = {
     "unmatched": (0.90, 0.30, 0.30, 1.0),
 }
 
+# Pages whose content changes when user data is imported.
+_IMPORT_AFFECTED_PAGES = ("watchlist", "history", "calendar", "profile")
+
 
 def _status_dot(status: str) -> Gtk.Widget:
     """Small filled-circle indicator for a match status."""
@@ -49,10 +54,51 @@ def _status_dot(status: str) -> Gtk.Widget:
     return area
 
 
+def _prefetch_poster(url: str) -> bool:
+    """Download a poster into the on-disk poster cache. False on failure."""
+    if not url:
+        return False
+    if poster_cache.get(url):
+        return True
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Ciak/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = resp.read()
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+    poster_cache.put(url, data)
+    return True
+
+
+def backfill_missing_posters(repository, metadata_service,
+                             on_progress=None) -> int:
+    """Fetch and cache posters for every cached media row that lacks one.
+
+    Returns the number of posters fetched. Runs off the main thread.
+    """
+    targets = repository.get_media_missing_posters()
+    total = len(targets)
+    done = 0
+    for tmdb_id, media_type in targets:
+        try:
+            if media_type == "show":
+                movie = metadata_service.get_show(tmdb_id, refresh=True)
+            else:
+                movie = metadata_service.get_movie(tmdb_id, refresh=True)
+            _prefetch_poster(movie.poster_url)
+        except Exception:
+            pass
+        done += 1
+        if on_progress is not None:
+            on_progress(done, total)
+    return done
+
+
 class ImportPreviewDialog(Adw.Dialog):
     """Shows parsed+matched items and imports the checked ones."""
 
-    def __init__(self, parent: Gtk.Widget, repository, metadata_service):
+    def __init__(self, parent: Gtk.Widget, repository, metadata_service,
+                 main_page=None):
         super().__init__()
         self.set_title("Import Data")
         self.set_content_width(640)
@@ -61,9 +107,11 @@ class ImportPreviewDialog(Adw.Dialog):
         self._parent = parent
         self._repository = repository
         self._metadata_service = metadata_service
+        self._main_page = main_page
         self._results: list = []
         self._checkboxes: list[Gtk.CheckButton] = []
         self._import_btn = None
+        self._toggle_btn = None
         self._summary_label = None
         self._list_box = None
         self.present(parent)
@@ -100,7 +148,10 @@ class ImportPreviewDialog(Adw.Dialog):
             if e.code in (Gtk.DialogError.CANCELLED, Gtk.DialogError.DISMISSED):
                 self.close()
                 return
-            _show_error_dialog("Could not open file", str(e), self._parent)
+            _show_error_dialog(
+                "Could not open file", str(e), self._parent,
+                title="Import Failed",
+            )
             self.close()
             return
 
@@ -115,6 +166,7 @@ class ImportPreviewDialog(Adw.Dialog):
                 "Cannot read this location",
                 f"No local path resolved.\nURI: {file.get_uri()}",
                 self._parent,
+                title="Import Failed",
             )
             self.close()
             return
@@ -157,14 +209,19 @@ class ImportPreviewDialog(Adw.Dialog):
                 results = future.result()
             except ImportParseError as exc:
                 self.close()
-                _show_error_dialog("Cannot import this file", str(exc), self._parent)
+                _show_error_dialog(
+                    "Cannot import this file", str(exc), self._parent,
+                    title="Import Failed",
+                )
                 return
             except Exception as exc:
                 self.close()
                 tb_text = "".join(
                     traceback.format_exception(type(exc), exc, exc.__traceback__)
                 )
-                _show_error_dialog(str(exc), tb_text, self._parent)
+                _show_error_dialog(
+                    str(exc), tb_text, self._parent, title="Import Failed"
+                )
                 return
             self._build_preview(results)
 
@@ -190,10 +247,20 @@ class ImportPreviewDialog(Adw.Dialog):
         header.set_margin_end(16)
         header.set_margin_bottom(8)
 
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title_row.set_halign(Gtk.Align.FILL)
+
         title = Gtk.Label(label="Items to import")
         title.add_css_class("title-1")
         title.set_halign(Gtk.Align.START)
-        header.append(title)
+        title.set_hexpand(True)
+        title_row.append(title)
+
+        self._toggle_btn = Gtk.Button(label="Check all")
+        self._toggle_btn.set_valign(Gtk.Align.CENTER)
+        self._toggle_btn.connect("clicked", self._on_toggle_all_clicked)
+        title_row.append(self._toggle_btn)
+        header.append(title_row)
 
         self._summary_label = Gtk.Label(
             label=(
@@ -253,6 +320,13 @@ class ImportPreviewDialog(Adw.Dialog):
 
         hbox.append(_status_dot(result.status))
 
+        checkbox = Gtk.CheckButton()
+        checkbox.set_active(result.status != "unmatched")
+        checkbox.set_valign(Gtk.Align.CENTER)
+        checkbox.connect("toggled", lambda _c: self._update_import_button())
+        self._checkboxes.append(checkbox)
+        hbox.append(checkbox)
+
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         title = Gtk.Label(label=result.item.title or "Unknown")
         title.set_halign(Gtk.Align.START)
@@ -283,13 +357,6 @@ class ImportPreviewDialog(Adw.Dialog):
 
         hbox.append(text_box)
 
-        checkbox = Gtk.CheckButton()
-        checkbox.set_active(result.status != "unmatched")
-        checkbox.set_valign(Gtk.Align.CENTER)
-        checkbox.connect("toggled", lambda _c: self._update_import_button())
-        self._checkboxes.append(checkbox)
-        hbox.append(checkbox)
-
         row.set_child(hbox)
         return row
 
@@ -303,6 +370,36 @@ class ImportPreviewDialog(Adw.Dialog):
             f"Import {count} item{'s' if count != 1 else ''}"
         )
         self._import_btn.set_sensitive(count > 0)
+        self._update_toggle_button()
+
+    # ------------------------------------------------------------------
+    # Select all / none
+    # ------------------------------------------------------------------
+
+    def _selectable_checkboxes(self):
+        """Rows that can actually be imported (unmatched rows never are)."""
+        return [
+            cb for result, cb in zip(self._results, self._checkboxes)
+            if result.status != "unmatched"
+        ]
+
+    def _all_selectable_checked(self):
+        selectable = self._selectable_checkboxes()
+        return bool(selectable) and all(cb.get_active() for cb in selectable)
+
+    def _update_toggle_button(self):
+        if self._toggle_btn is None:
+            return
+        self._toggle_btn.set_label(
+            "Uncheck all" if self._all_selectable_checked() else "Check all"
+        )
+
+    def _on_toggle_all_clicked(self, _btn):
+        check = not self._all_selectable_checked()
+        for cb in self._selectable_checkboxes():
+            cb.set_active(check)
+        self._update_import_button()
+        self._update_toggle_button()
 
     # ------------------------------------------------------------------
     # Commit
@@ -352,6 +449,14 @@ class ImportPreviewDialog(Adw.Dialog):
         self._import_btn.set_sensitive(False)
         self._import_btn.set_label("Importing…")
         repo = self._repository
+        service = self._metadata_service
+
+        poster_targets = self._poster_targets(selected)
+        total_posters = len(poster_targets)
+        _poster_done = [0]
+
+        def _set_progress(text):
+            GLib.idle_add(self._set_import_label, text)
 
         def _work():
             counts = {
@@ -359,7 +464,23 @@ class ImportPreviewDialog(Adw.Dialog):
                 "watchlist": repo.import_watchlist(watchlist),
                 "ratings": repo.import_ratings(ratings),
             }
-            return sum(counts.values())
+            total = sum(counts.values())
+            if total_posters:
+                _set_progress("Fetching posters…")
+                for tmdb_id, media_type in poster_targets:
+                    try:
+                        if media_type == "show":
+                            movie = service.get_show(tmdb_id, refresh=True)
+                        else:
+                            movie = service.get_movie(tmdb_id, refresh=True)
+                        _prefetch_poster(movie.poster_url)
+                    except Exception:
+                        pass
+                    _poster_done[0] += 1
+                    _set_progress(
+                        f"Downloading posters {_poster_done[0]}/{total_posters}…"
+                    )
+            return total
 
         def _done(future):
             try:
@@ -368,9 +489,12 @@ class ImportPreviewDialog(Adw.Dialog):
                 tb_text = "".join(
                     traceback.format_exception(type(exc), exc, exc.__traceback__)
                 )
-                _show_error_dialog(str(exc), tb_text, self._parent)
+                _show_error_dialog(
+                    str(exc), tb_text, self._parent, title="Import Failed"
+                )
                 self.close()
                 return
+            self._invalidate_pages()
             self.close()
             toast = Adw.Toast.new(
                 f"Imported {total} item{'s' if total != 1 else ''}"
@@ -381,8 +505,43 @@ class ImportPreviewDialog(Adw.Dialog):
         future = threads.submit(_work)
         future.add_done_callback(lambda f: GLib.idle_add(_done, f))
 
+    def _poster_targets(self, results) -> list[tuple[int, str]]:
+        """Unique (tmdb_id, media_type) items to fetch posters for.
 
-def show_import_dialog(parent: Gtk.Widget, repository, metadata_service) -> None:
+        Covers the newly imported items plus any cached media that still
+        lacks a poster, so one import backfills the whole library.
+        """
+        targets: dict[int, str] = {}
+        for result in results:
+            item = result.item
+            if item.media_type == "episode":
+                if item.show_tmdb_id:
+                    targets[item.show_tmdb_id] = "show"
+            elif result.tmdb_id:
+                targets[result.tmdb_id] = (
+                    result.media_type if result.media_type == "show" else "movie"
+                )
+        try:
+            for tmdb_id, media_type in self._repository.get_media_missing_posters():
+                targets.setdefault(tmdb_id, media_type)
+        except Exception:
+            pass
+        return list(targets.items())
+
+    def _set_import_label(self, text):
+        if self._import_btn is not None:
+            self._import_btn.set_label(text)
+
+    def _invalidate_pages(self):
+        if self._main_page is None:
+            return
+        for page_id in _IMPORT_AFFECTED_PAGES:
+            self._main_page.invalidate_page(page_id, reload_now=True)
+
+
+def show_import_dialog(
+    parent: Gtk.Widget, repository, metadata_service, main_page=None
+) -> None:
     """Entry point. Requires a configured TMDB API key for matching."""
     settings = Gio.Settings.new(config.APP_ID)
     if not settings.get_string("tmdb-api-key").strip():
@@ -397,4 +556,4 @@ def show_import_dialog(parent: Gtk.Widget, repository, metadata_service) -> None
         dialog.present(parent)
         return
 
-    ImportPreviewDialog(parent, repository, metadata_service)
+    ImportPreviewDialog(parent, repository, metadata_service, main_page)

@@ -7,7 +7,7 @@ WAL journal mode is enabled for concurrent read performance.
 
 import logging
 
-DB_VERSION = 2
+DB_VERSION = 3
 PRAGMAS = [
     "PRAGMA journal_mode=WAL",
     "PRAGMA foreign_keys=ON",
@@ -178,4 +178,35 @@ def _migrate(conn) -> None:
         conn.execute(
             "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
             (2, 1),
+        )
+    if current < 3:
+        # watched_items has a composite PK that includes nullable episode
+        # columns; for movies/shows these are all NULL, and SQLite treats
+        # NULL != NULL, so INSERT OR REPLACE could not dedupe.  Collapse
+        # existing duplicates (keep the newest watched_at) and enforce
+        # uniqueness over the fully populated key going forward.
+        conn.execute(
+            "DELETE FROM watched_items WHERE rowid NOT IN ("
+            "SELECT rowid FROM ("
+            "  SELECT rowid, ROW_NUMBER() OVER ("
+            "    PARTITION BY tmdb_id, media_type,"
+            "      COALESCE(show_tmdb_id, -1),"
+            "      COALESCE(season_number, -1),"
+            "      COALESCE(episode_number, -1)"
+            "    ORDER BY watched_at DESC, rowid DESC"
+            "  ) AS rn FROM watched_items"
+            ") WHERE rn = 1"
+            ")"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_watched_items_unique ON watched_items ("
+            "tmdb_id, media_type,"
+            "COALESCE(show_tmdb_id, -1),"
+            "COALESCE(season_number, -1),"
+            "COALESCE(episode_number, -1)"
+            ")"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (3, 1),
         )

@@ -574,13 +574,14 @@ class TraktExport:
             "ratings": "rated_at",
             "watchlist": "listed_at",
         }.get(target, "listed_at")
+        inferred = _normalize_media_type(
+            media.get("media_type")
+        ) or _normalize_media_type(entry.get("type"))
         return ImportItem(
             title=title,
             year=_parse_int(media.get("year")),
             imdb_id=ids.get("imdb"),
-            media_type=media_type or _normalize_media_type(
-                media.get("media_type")
-            ),
+            media_type=media_type or inferred,
             rating=rating,
             watched_date=_parse_date(entry.get(date_key) or None),
             target=target,
