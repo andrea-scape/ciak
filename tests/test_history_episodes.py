@@ -181,5 +181,41 @@ class MediaTypeLabelTest(unittest.TestCase):
         self.assertEqual(media_type_label(item), "TV Show - S01E24 to S02E01")
 
 
+class CardPosterSizeTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            Gtk.init()
+            Adw.init()
+        except TypeError:
+            pass
+
+    def test_make_media_card_uses_w185_poster(self):
+        from unittest import mock
+
+        from src.ui import media_card
+        from src.ui.media_card import make_media_card
+
+        item = SimpleNamespace(
+            media_type="movie", title="Fight Club", year=1999,
+            poster_url="https://image.tmdb.org/t/p/w500/550.jpg",
+        )
+        with mock.patch.object(media_card, "load_poster") as load:
+            make_media_card(item)
+        self.assertEqual(load.call_count, 1)
+        url = load.call_args[0][0]
+        self.assertIn("/w185/", url)
+        self.assertNotIn("/w500/", url)
+
+    def test_card_url_rewrite_keeps_non_tmdb_urls(self):
+        from src.ui.media_card import card_poster_url
+
+        self.assertIsNone(card_poster_url(None))
+        self.assertEqual(
+            card_poster_url("https://example.com/raw.jpg"),
+            "https://example.com/raw.jpg",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -695,39 +695,44 @@ class ServiceRefreshTest(unittest.TestCase):
 
 
 class BackfillTest(unittest.TestCase):
+    def _seeded_repo_service(self, d):
+        db = os.path.join(d, "t.sqlite")
+        repo = LocalMediaRepository(db)
+        repo.initialize()
+        repo.import_watched([
+            {"tmdb_id": 550, "media_type": "movie", "title": "Fight Club",
+             "year": 1999, "watched_at": 1691971200},
+            {"tmdb_id": 5001, "media_type": "episode",
+             "title": "Show", "show_tmdb_id": 999, "season_number": 1,
+             "episode_number": 1, "watched_at": 1691971200},
+        ])
+
+        from src.data.local.cache import MetadataCache
+
+        cache = MetadataCache(db)
+        client = mock.Mock()
+        client._image_url.side_effect = lambda path, size=None: path
+        client.get_movie.return_value = {
+            "id": 550, "title": "Fight Club",
+            "release_date": "1999-10-15", "poster_path": "/550.jpg",
+            "overview": "o", "runtime": 139, "vote_average": 8.4,
+            "vote_count": 100, "genres": [],
+            "belongs_to_collection": None,
+        }
+        client.get_tv.return_value = {
+            "id": 999, "name": "Show", "first_air_date": "2020-01-01",
+            "poster_path": "/999.jpg", "overview": "o",
+            "vote_average": 8.0, "vote_count": 10, "genres": [],
+            "status": "Returning Series",
+        }
+        service = TmdbMetadataService(client, cache)
+        return repo, service
+
     def test_backfill_missing_posters_persists_urls(self):
         with tempfile.TemporaryDirectory() as d:
-            db = os.path.join(d, "t.sqlite")
-            repo = LocalMediaRepository(db)
-            repo.initialize()
-            repo.import_watched([
-                {"tmdb_id": 550, "media_type": "movie", "title": "Fight Club",
-                 "year": 1999, "watched_at": 1691971200},
-                {"tmdb_id": 5001, "media_type": "episode",
-                 "title": "Show", "show_tmdb_id": 999, "season_number": 1,
-                 "episode_number": 1, "watched_at": 1691971200},
-            ])
+            repo, service = self._seeded_repo_service(d)
 
-            from src.data.local.cache import MetadataCache
             from src.ui import import_dialog
-
-            cache = MetadataCache(db)
-            client = mock.Mock()
-            client._image_url.side_effect = lambda path, size=None: path
-            client.get_movie.return_value = {
-                "id": 550, "title": "Fight Club",
-                "release_date": "1999-10-15", "poster_path": "/550.jpg",
-                "overview": "o", "runtime": 139, "vote_average": 8.4,
-                "vote_count": 100, "genres": [],
-                "belongs_to_collection": None,
-            }
-            client.get_tv.return_value = {
-                "id": 999, "name": "Show", "first_air_date": "2020-01-01",
-                "poster_path": "/999.jpg", "overview": "o",
-                "vote_average": 8.0, "vote_count": 10, "genres": [],
-                "status": "Returning Series",
-            }
-            service = TmdbMetadataService(client, cache)
 
             with mock.patch.object(
                 import_dialog, "_prefetch_poster", return_value=True
@@ -744,6 +749,41 @@ class BackfillTest(unittest.TestCase):
                     (tmdb_id,),
                 ).fetchone()[0]
                 self.assertTrue(url, f"poster_url missing for {tmdb_id}")
+
+    def test_backfill_fans_out_to_pool_and_skips_refresh(self):
+        from concurrent.futures import Future
+
+        from src.ui import import_dialog
+
+        with tempfile.TemporaryDirectory() as d:
+            repo, service = self._seeded_repo_service(d)
+            submitted: list[tuple] = []
+
+            def fake_submit(fn, *args):
+                future = Future()
+                future.set_result(fn(*args))
+                submitted.append((fn, args))
+                return future
+
+            with mock.patch.object(
+                import_dialog.threads, "submit", side_effect=fake_submit
+            ), mock.patch.object(
+                service, "get_movie", wraps=service.get_movie
+            ) as gm, mock.patch.object(
+                service, "get_show", wraps=service.get_show
+            ) as gs:
+                done = import_dialog.backfill_missing_posters(repo, service)
+
+            self.assertEqual(done, 2)
+
+            # One unit of work per missing poster, dispatched via the pool.
+            self.assertEqual(len(submitted), 2)
+            media_types = {args[1] for _, args in submitted}
+            self.assertEqual(media_types, {"movie", "show"})
+
+            # Cache-first reads: no forced refresh sent to the service.
+            self.assertEqual(gm.call_args_list, [mock.call(550)])
+            self.assertEqual(gs.call_args_list, [mock.call(999)])
 
 
 class TraktExportWatchlistShowTest(unittest.TestCase):

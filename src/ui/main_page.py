@@ -14,6 +14,7 @@ import os
 from ..domain.exceptions import NetworkError
 from .. import config
 from .. import poster_cache
+from .poster import get_mem_pixbuf, put_mem_pixbuf
 from .search_page import SearchPage
 from .watchlist_page import WatchlistPage
 from .history_page import HistoryPage
@@ -76,6 +77,11 @@ class MainPage(Adw.Bin):
         self._previous_page = None
         self._previous_main_page = None
         self._global_mode = "all"
+        if self.win.settings.get_boolean("remember-content-filter"):
+            saved = self.win.settings.get_string("content-filter-mode")
+            if saved in ("all", "movies", "shows"):
+                self._global_mode = saved
+        self._sync_toggle(self._global_mode)
         self._detail_page = None
         self._detail_open = False
         self._current_detail_name = "detail_0"
@@ -482,13 +488,29 @@ class MainPage(Adw.Bin):
         return content_page
 
     def _on_toggle_changed(self, btn):
+        if not btn.get_active():
+            return
         if self.all_toggle.get_active():
             mode = "all"
         elif self.movie_toggle.get_active():
             mode = "movies"
         else:
             mode = "shows"
+        self.set_global_mode(mode)
+
+    def set_global_mode(self, mode):
+        """Single source of truth for the ALL/Movies/Shows filter. Updates the
+        headerbar toggles, persists the mode (when remembering is enabled), and
+        pushes it to every page with a _set_mode."""
+        if mode not in ("all", "movies", "shows"):
+            return
         self._global_mode = mode
+        self._sync_toggle(mode)
+        try:
+            if self.win.settings.get_boolean("remember-content-filter"):
+                self.win.settings.set_string("content-filter-mode", mode)
+        except Exception:
+            pass
         for page in self._pages.values():
             if hasattr(page, "_set_mode"):
                 page._set_mode(mode)
@@ -499,9 +521,15 @@ class MainPage(Adw.Bin):
         self.show_toggle.handler_block_by_func(self._on_toggle_changed)
         if mode == "all":
             self.all_toggle.set_active(True)
+            self.movie_toggle.set_active(False)
+            self.show_toggle.set_active(False)
         elif mode == "movies":
+            self.all_toggle.set_active(False)
             self.movie_toggle.set_active(True)
+            self.show_toggle.set_active(False)
         else:
+            self.all_toggle.set_active(False)
+            self.movie_toggle.set_active(False)
             self.show_toggle.set_active(True)
         self.all_toggle.handler_unblock_by_func(self._on_toggle_changed)
         self.movie_toggle.handler_unblock_by_func(self._on_toggle_changed)
@@ -780,22 +808,35 @@ class MainPage(Adw.Bin):
                     GLib.idle_add(detail_page.update_season_episodes, season_episodes)
 
             lazy = {}
+            show_streaming = True
+            try:
+                show_streaming = self.win.settings.get_boolean("show-streaming-availability")
+            except Exception:
+                pass
+            from .region import streaming_region
+
+            region = streaming_region(self.win.settings)
             if media_type == "movie":
                 lazy_keys = [
                     ("related", lambda: self.metadata_service.get_related_movies(item.tmdb_id)),
                     ("cast", lambda: self.metadata_service.get_movie_cast(item.tmdb_id)),
                 ]
+                if show_streaming:
+                    lazy_keys.append(("streaming", lambda: self.metadata_service.get_movie_streaming(item.tmdb_id, region)))
             else:
                 lazy_keys = [
                     ("related", lambda: self.metadata_service.get_related_shows(item.tmdb_id)),
                     ("cast", lambda: self.metadata_service.get_show_cast(item.tmdb_id)),
                 ]
+                if show_streaming:
+                    lazy_keys.append(("streaming", lambda: self.metadata_service.get_show_streaming(item.tmdb_id, region)))
 
             self._run_fetch_group(lazy, lazy_keys)
             if getattr(detail_page, "_cancelled", False):
                 return
             detail_page.populate_related(lazy.get("related", []))
             detail_page.populate_cast(lazy.get("cast", []))
+            detail_page.populate_streaming(lazy.get("streaming") if show_streaming else None)
         except NetworkError:
             pass
 
@@ -816,9 +857,13 @@ class MainPage(Adw.Bin):
 
     def _download_texture(self, url):
         try:
+            pixbuf = get_mem_pixbuf(url)
+            if pixbuf is not None:
+                return pixbuf
             cached = poster_cache.get(url)
             if cached:
                 pixbuf = GdkPixbuf.Pixbuf.new_from_file(cached)
+                put_mem_pixbuf(url, pixbuf)
                 return pixbuf
             req = urllib.request.Request(url, headers={"User-Agent": "Ciak/1.0"})
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -828,6 +873,7 @@ class MainPage(Adw.Bin):
             tmp.write(raw)
             tmp.close()
             pixbuf = GdkPixbuf.Pixbuf.new_from_file(tmp.name)
+            put_mem_pixbuf(url, pixbuf)
             try:
                 os.unlink(tmp.name)
             except OSError:

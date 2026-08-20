@@ -16,6 +16,22 @@ POSTER_H = 240
 TITLE_MAX_CHARS = 18
 
 
+def card_poster_url(url: str | None) -> str | None:
+    """Downsize a TMDB poster URL for card display (160x240).
+
+    Cards only render at w185 resolution, so fetching w500 wastes bandwidth
+    and disk. Non-TMDB URLs (and None) pass through unchanged.
+    """
+    if not url:
+        return None
+    if "/t/p/" in url:
+        parts = url.split("/t/p/", 1)
+        size_and_path = parts[1].split("/", 1)
+        if len(size_and_path) == 2:
+            return f"{parts[0]}/t/p/w185/{size_and_path[1]}"
+    return url
+
+
 def config_grid(grid):
     """Configure a Gtk.FlowBox for the watchlist/search card layout."""
     grid.set_valign(Gtk.Align.START)
@@ -124,6 +140,6 @@ def make_media_card(item, main_page=None, footer=None):
     button._paintable = paintable
     button._picture = picture
     picture._fixed_paintable = paintable
-    load_poster(item.poster_url, picture)
+    load_poster(card_poster_url(item.poster_url), picture)
 
     return button

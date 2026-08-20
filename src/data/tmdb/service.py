@@ -7,7 +7,7 @@ API responses.
 """
 
 from ...domain.exceptions import NetworkError
-from ...domain.models import Movie, Show, Season, Episode, CastMember
+from ...domain.models import Movie, Show, Season, Episode, CastMember, StreamingInfo, StreamingProvider
 from .client import TmdbClient
 from ..local.cache import MetadataCache
 import httpx
@@ -474,3 +474,60 @@ class TmdbMetadataService:
             character=raw.get("character"),
             photo_url=self._client._image_url(raw.get("profile_path"), "w185"),
         )
+
+    # ------------------------------------------------------------------
+    # Streaming availability (watch providers)
+    # ------------------------------------------------------------------
+
+    def get_movie_streaming(self, tmdb_id: int, country_code: str) -> StreamingInfo | None:
+        return self._get_streaming(
+            tmdb_id, country_code, self._client.get_movie_watch_providers
+        )
+
+    def get_show_streaming(self, tmdb_id: int, country_code: str) -> StreamingInfo | None:
+        return self._get_streaming(
+            tmdb_id, country_code, self._client.get_tv_watch_providers
+        )
+
+    def _get_streaming(self, tmdb_id, country_code, fetch_fn) -> StreamingInfo | None:
+        cached = self._cache.get_watch_providers(tmdb_id, country_code)
+        if cached is not None:
+            return cached
+        try:
+            data = fetch_fn(tmdb_id)
+        except (httpx.HTTPError, ValueError) as exc:
+            raise NetworkError(
+                f"Failed to fetch streaming for {tmdb_id}: {exc}"
+            ) from exc
+        info = self._raw_to_streaming_info(data, country_code)
+        if info is None:
+            return None
+        self._cache.put_watch_providers(tmdb_id, info)
+        return info
+
+    def _raw_to_streaming_info(
+        self, data: dict, country_code: str
+    ) -> StreamingInfo | None:
+        region = data.get("results", {}).get(country_code)
+        if not region:
+            return None
+        return StreamingInfo(
+            country_code=country_code,
+            flatrate=self._raw_to_providers(region, "flatrate"),
+            rent=self._raw_to_providers(region, "rent"),
+            buy=self._raw_to_providers(region, "buy"),
+            ads=self._raw_to_providers(region, "ads"),
+            free=self._raw_to_providers(region, "free"),
+        )
+
+    def _raw_to_providers(self, region: dict, key: str) -> list[StreamingProvider]:
+        return [
+            StreamingProvider(
+                provider_id=p["provider_id"],
+                provider_name=p.get("provider_name", "Unknown"),
+                logo_url=self._client._image_url(p.get("logo_path"), "w92"),
+                display_priority=p.get("display_priority", 0),
+                offering_type=key,
+            )
+            for p in region.get(key, [])
+        ]

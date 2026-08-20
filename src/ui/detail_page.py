@@ -9,7 +9,13 @@ from ..domain.models import Movie, Show
 from ..domain.exceptions import NetworkError
 from .poster import create_poster, create_avatar, load_poster, load_avatar, POSTER_SLOTS
 from .painting import FixedPaintable, _load_texture_sync
-from .anim import fade_in
+
+_OFFERING_LABELS = {
+    "flatrate": "Stream",
+    "rent_buy": "Rent / Buy",
+    "ads": "Ads",
+    "free": "Free",
+}
 
 
 class DetailPage(Gtk.Box):
@@ -200,7 +206,7 @@ class DetailPage(Gtk.Box):
         self.related_box.add_css_class("card-section")
         self.related_revealer = Gtk.Revealer()
         self.related_revealer.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
-        self.related_revealer.set_transition_duration(400)
+        self.related_revealer.set_transition_duration(200)
         self.related_revealer.set_child(self._create_related_skeleton())
         self.related_box.append(self.related_revealer)
         self.related_section.append(self.related_box)
@@ -219,11 +225,31 @@ class DetailPage(Gtk.Box):
         self.cast_box.add_css_class("card-section")
         self.cast_revealer = Gtk.Revealer()
         self.cast_revealer.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
-        self.cast_revealer.set_transition_duration(400)
+        self.cast_revealer.set_transition_duration(200)
         self.cast_revealer.set_child(self._create_cast_skeleton())
         self.cast_box.append(self.cast_revealer)
         self.cast_section.append(self.cast_box)
 
+        self.streaming_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.streaming_section.set_margin_start(16)
+        self.streaming_section.set_margin_end(16)
+        self.streaming_section.set_margin_top(28)
+        self.streaming_section.set_margin_bottom(16)
+        self.streaming_section.set_visible(False)
+        self.streaming_title = Gtk.Label(label="Where to Watch", halign=Gtk.Align.START)
+        self.streaming_title.add_css_class("title-4")
+        self.streaming_section.append(self.streaming_title)
+
+        self.streaming_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.streaming_box.add_css_class("card-section")
+        self.streaming_revealer = Gtk.Revealer()
+        self.streaming_revealer.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
+        self.streaming_revealer.set_transition_duration(200)
+        self.streaming_revealer.set_child(self._create_streaming_skeleton())
+        self.streaming_box.append(self.streaming_revealer)
+        self.streaming_section.append(self.streaming_box)
+
+        content_box.append(self.streaming_section)
         content_box.append(self.cast_section)
         content_box.append(self.related_section)
 
@@ -268,12 +294,17 @@ class DetailPage(Gtk.Box):
         """Populate the cast & crew section."""
         GLib.idle_add(self._populate_cast, cast)
 
+    def populate_streaming(self, info):
+        """Populate the "Where to Watch" section. info is a StreamingInfo
+        or None (region missing / no providers) — hides the whole section."""
+        GLib.idle_add(self._populate_streaming, info)
+
     def set_poster(self, texture):
         """Apply a poster texture loaded by the deferred prefetch phase."""
         if texture is None:
             return False
         self.poster_area._fixed_paintable.set_texture(texture)
-        fade_in(self.poster_area, 300)
+        self.poster_area.set_opacity(1.0)
         return False
 
     def update_season_episodes(self, season_episodes):
@@ -404,6 +435,74 @@ class DetailPage(Gtk.Box):
 
             flow.append(card)
         return box
+
+    def _create_streaming_skeleton(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for _ in range(3):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            label = Gtk.Box()
+            label.add_css_class("skeleton")
+            label.set_size_request(72, 16)
+            row.append(label)
+            for _ in range(4):
+                logo = Gtk.Box()
+                logo.add_css_class("skeleton")
+                logo.set_size_request(48, 48)
+                logo.set_overflow(Gtk.Overflow.HIDDEN)
+                logo.add_css_class("provider-logo")
+                row.append(logo)
+            box.append(row)
+        return box
+
+    def _populate_streaming(self, info):
+        if not info or getattr(self, "_cancelled", False):
+            self.streaming_section.set_visible(False)
+            return False
+
+        inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        inner.set_margin_top(12)
+        inner.set_margin_bottom(12)
+        inner.set_margin_start(16)
+        inner.set_margin_end(16)
+        inner.add_css_class("provider-groups")
+        inner.set_hexpand(True)
+        self.streaming_revealer.set_child(inner)
+
+        for index, offering_type in enumerate(info.offering_types()):
+            providers = info.rent_buy() if offering_type == "rent_buy" else getattr(info, offering_type)
+            group_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            group_box.set_halign(Gtk.Align.START)
+            group_box.set_valign(Gtk.Align.START)
+
+            label = Gtk.Label(label=_OFFERING_LABELS.get(offering_type, offering_type))
+            label.set_xalign(0)
+            label.add_css_class("heading")
+            label.add_css_class("provider-group-label")
+            group_box.append(label)
+
+            logos = Gtk.FlowBox()
+            logos.set_selection_mode(Gtk.SelectionMode.NONE)
+            logos.set_homogeneous(False)
+            logos.set_column_spacing(10)
+            logos.set_row_spacing(10)
+            logos.set_halign(Gtk.Align.START)
+            logos.set_valign(Gtk.Align.START)
+            group_box.append(logos)
+
+            for p in sorted(
+                providers, key=lambda p: p.display_priority
+            ):
+                logo_box, logo = create_poster(52, 52, "provider-logo")
+                logo.set_tooltip_text(p.provider_name)
+                logos.append(logo_box)
+                if p.logo_url:
+                    load_poster(p.logo_url, logo)
+
+            inner.append(group_box)
+
+        self.streaming_section.set_visible(True)
+        self.streaming_revealer.set_reveal_child(True)
+        return False
 
     def _populate_movie_hero(self, movie, watchlist_ids, watched_ids,
                              poster_texture=None, my_rating=None):

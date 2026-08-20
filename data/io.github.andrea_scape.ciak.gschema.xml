@@ -85,5 +85,25 @@
       <summary>Metadata cache TTL in seconds</summary>
       <description>How long (in seconds) to cache TMDB metadata before re-fetching. Default is 3600 (1 hour).</description>
     </key>
+    <key name="streaming-region" type="s">
+      <default>'auto'</default>
+      <summary>Streaming availability region</summary>
+      <description>ISO-3166-1 country code used to look up where titles can be streamed. 'auto' detects the region from the system locale.</description>
+    </key>
+    <key name="show-streaming-availability" type="b">
+      <default>true</default>
+      <summary>Show streaming availability</summary>
+      <description>Whether to show where movies and TV shows can be streamed, rented, or bought on the detail page.</description>
+    </key>
+    <key name="content-filter-mode" type="s">
+      <default>'all'</default>
+      <summary>Content filter (ALL/Movies/Shows)</summary>
+      <description>Last used content filter mode: 'all', 'movies', or 'shows'. Restored on startup only when remember-content-filter is enabled.</description>
+    </key>
+    <key name="remember-content-filter" type="b">
+      <default>false</default>
+      <summary>Remember content filter</summary>
+      <description>Restore the last ALL/Movies/Shows content filter on startup instead of resetting to ALL.</description>
+    </key>
   </schema>
 </schemalist>

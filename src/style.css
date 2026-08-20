@@ -465,8 +465,20 @@ flowbox flowboxchild {
     border-radius: 8px;
 }
 
-.skeleton.cast-avatar {
-    border-radius: 999px;
+.provider-logo {
+    border-radius: 12px;
+    background-color: alpha(@theme_fg_color, 0.04);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.skeleton.provider-logo {
+    border-radius: 12px;
+}
+
+.provider-group-label {
+    font-weight: 600;
+    font-size: 15px;
+    color: @window_fg_color;
 }
 
 /* About page app icon */

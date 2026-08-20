@@ -13,6 +13,7 @@ from .export_dialog import show_export_dialog
 from .import_dialog import show_import_dialog
 
 THEME_VALUES = ["light", "dark", "default"]
+_REGION_LABELS = ["auto", "US", "GB", "IT", "DE", "FR", "ES", "CA", "AU"]
 
 DEFAULT_PAGES = [
     ("watchlist", "Watchlist"),
@@ -128,6 +129,51 @@ class PreferencesPage(Adw.PreferencesDialog):
             Gio.SettingsBindFlags.DEFAULT,
         )
         content_group.add(adult_row)
+
+        show_streaming_row = Adw.SwitchRow()
+        show_streaming_row.set_title("Show Streaming Availability")
+        show_streaming_row.set_subtitle("Display where movies and TV shows can be streamed, rented, or bought")
+        self._settings.bind(
+            "show-streaming-availability",
+            show_streaming_row,
+            "active",
+            Gio.SettingsBindFlags.DEFAULT,
+        )
+        content_group.add(show_streaming_row)
+
+        remember_filter_row = Adw.SwitchRow()
+        remember_filter_row.set_title("Remember Content Filter")
+        remember_filter_row.set_subtitle("Restore the last ALL / Movies / Shows filter on startup")
+        self._settings.bind(
+            "remember-content-filter",
+            remember_filter_row,
+            "active",
+            Gio.SettingsBindFlags.DEFAULT,
+        )
+        content_group.add(remember_filter_row)
+
+        region_row = Adw.ComboRow()
+        region_row.set_title("Streaming Region")
+        region_row.set_subtitle("Where to check availability (stream, rent, buy)")
+        region_model = Gtk.StringList()
+        region_model.append("Auto")
+        region_model.append("United States (US)")
+        region_model.append("United Kingdom (UK)")
+        region_model.append("Italy (IT)")
+        region_model.append("Germany (DE)")
+        region_model.append("France (FR)")
+        region_model.append("Spain (ES)")
+        region_model.append("Canada (CA)")
+        region_model.append("Australia (AU)")
+        region_row.set_model(region_model)
+        current_region = self._settings.get_string("streaming-region")
+        region_row.set_selected(
+            _REGION_LABELS.index(current_region)
+            if current_region in _REGION_LABELS
+            else 0
+        )
+        region_row.connect("notify::selected", self._on_region_changed)
+        content_group.add(region_row)
 
         default_row = Adw.ComboRow()
         default_row.set_title("Default Page")
@@ -531,6 +577,11 @@ class PreferencesPage(Adw.PreferencesDialog):
         show_import_dialog(
             self, app._user_repo, app._metadata_service, self._main_page
         )
+
+    def _on_region_changed(self, row, _gparam):
+        idx = row.get_selected()
+        if 0 <= idx < len(_REGION_LABELS):
+            self._settings.set_string("streaming-region", _REGION_LABELS[idx])
 
     def _on_sidebar_mode_changed(self, row, _gparam):
         value = "collapse" if row.get_selected() == 0 else "remember"

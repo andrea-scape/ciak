@@ -13,7 +13,7 @@ import sqlite3
 import threading
 import time
 
-from ...domain.models import Movie, Show, Season, Episode
+from ...domain.models import Movie, Show, Season, Episode, StreamingInfo, StreamingProvider
 
 _CACHE_TABLES: list[str] = []
 
@@ -188,6 +188,14 @@ class MetadataCache:
             conn.execute(
                 "ALTER TABLE media_items ADD COLUMN creators TEXT"
             )
+        if "watch_providers" not in cols:
+            conn.execute(
+                "ALTER TABLE media_items ADD COLUMN watch_providers TEXT"
+            )
+        if "providers_cached_at" not in cols:
+            conn.execute(
+                "ALTER TABLE media_items ADD COLUMN providers_cached_at INTEGER"
+            )
 
     # ------------------------------------------------------------------
     # Media (movies & shows)
@@ -258,6 +266,83 @@ class MetadataCache:
             fields,
         )
         self._ensure_conn().commit()
+
+    # ------------------------------------------------------------------
+    # Watch providers (streaming availability)
+    # ------------------------------------------------------------------
+
+    def get_watch_providers(
+        self, tmdb_id: int, country_code: str
+    ) -> StreamingInfo | None:
+        """Return cached streaming info for a region if within TTL."""
+        row = self._ensure_conn().execute(
+            "SELECT watch_providers, providers_cached_at FROM media_items "
+            "WHERE tmdb_id = ?",
+            (tmdb_id,),
+        ).fetchone()
+        if row is None or not row["watch_providers"]:
+            return None
+        if self._is_expired(row["providers_cached_at"] or 0):
+            return None
+        info = json.loads(row["watch_providers"])
+        if info.get("country_code") != country_code:
+            return None
+        return self._row_to_streaming_info(info)
+
+    def put_watch_providers(self, tmdb_id: int, info: StreamingInfo) -> None:
+        """Store streaming availability for a media row."""
+        now = int(time.time())
+        self._ensure_conn().execute(
+            "UPDATE media_items SET watch_providers = ?, "
+            "providers_cached_at = ? WHERE tmdb_id = ?",
+            (
+                json.dumps(self._streaming_info_to_dict(info)),
+                now,
+                tmdb_id,
+            ),
+        )
+        self._ensure_conn().commit()
+
+    def _streaming_info_to_dict(self, info: StreamingInfo) -> dict:
+        return {
+            "country_code": info.country_code,
+            "flatrate": [self._provider_to_dict(p) for p in info.flatrate],
+            "rent": [self._provider_to_dict(p) for p in info.rent],
+            "buy": [self._provider_to_dict(p) for p in info.buy],
+            "ads": [self._provider_to_dict(p) for p in info.ads],
+            "free": [self._provider_to_dict(p) for p in info.free],
+        }
+
+    @staticmethod
+    def _provider_to_dict(p: StreamingProvider) -> dict:
+        return {
+            "provider_id": p.provider_id,
+            "provider_name": p.provider_name,
+            "logo_url": p.logo_url,
+            "display_priority": p.display_priority,
+            "offering_type": p.offering_type,
+        }
+
+    @classmethod
+    def _row_to_streaming_info(cls, info: dict) -> StreamingInfo:
+        return StreamingInfo(
+            country_code=info.get("country_code", ""),
+            flatrate=[cls._dict_to_provider(p) for p in info.get("flatrate", [])],
+            rent=[cls._dict_to_provider(p) for p in info.get("rent", [])],
+            buy=[cls._dict_to_provider(p) for p in info.get("buy", [])],
+            ads=[cls._dict_to_provider(p) for p in info.get("ads", [])],
+            free=[cls._dict_to_provider(p) for p in info.get("free", [])],
+        )
+
+    @staticmethod
+    def _dict_to_provider(p: dict) -> StreamingProvider:
+        return StreamingProvider(
+            provider_id=p.get("provider_id"),
+            provider_name=p.get("provider_name") or "",
+            logo_url=p.get("logo_url"),
+            display_priority=p.get("display_priority") or 0,
+            offering_type=p.get("offering_type") or "flatrate",
+        )
 
     # ------------------------------------------------------------------
     # Seasons

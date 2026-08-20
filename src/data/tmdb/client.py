@@ -137,6 +137,16 @@ class TmdbClient:
         return self._get(f"/tv/{tv_id}/credits")
 
     # ------------------------------------------------------------------
+    # Watch providers (streaming availability)
+    # ------------------------------------------------------------------
+
+    def get_movie_watch_providers(self, movie_id: int) -> dict:
+        return self._get(f"/movie/{movie_id}/watch/providers")
+
+    def get_tv_watch_providers(self, tv_id: int) -> dict:
+        return self._get(f"/tv/{tv_id}/watch/providers")
+
+    # ------------------------------------------------------------------
     # Discovery / lists
     # ------------------------------------------------------------------
 

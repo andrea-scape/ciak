@@ -70,6 +70,27 @@ def _prefetch_poster(url: str) -> bool:
     return True
 
 
+def _fetch_posters(targets, metadata_service) -> list:
+    """Fetch metadata + posters for a list of (tmdb_id, media_type).
+
+    Metadata is read cache-first (no forced refresh) and each title is
+    fetched via the shared worker pool. Never touches GTK. Returns the
+    submitted futures for the caller to drain.
+    """
+    def _one(tmdb_id, media_type):
+        try:
+            if media_type == "show":
+                movie = metadata_service.get_show(tmdb_id)
+            else:
+                movie = metadata_service.get_movie(tmdb_id)
+            _prefetch_poster(movie.poster_url)
+        except Exception:
+            pass
+
+    return [threads.submit(_one, tmdb_id, media_type)
+            for tmdb_id, media_type in targets]
+
+
 def backfill_missing_posters(repository, metadata_service,
                              on_progress=None) -> int:
     """Fetch and cache posters for every cached media row that lacks one.
@@ -79,15 +100,9 @@ def backfill_missing_posters(repository, metadata_service,
     targets = repository.get_media_missing_posters()
     total = len(targets)
     done = 0
-    for tmdb_id, media_type in targets:
-        try:
-            if media_type == "show":
-                movie = metadata_service.get_show(tmdb_id, refresh=True)
-            else:
-                movie = metadata_service.get_movie(tmdb_id, refresh=True)
-            _prefetch_poster(movie.poster_url)
-        except Exception:
-            pass
+    futures = _fetch_posters(targets, metadata_service)
+    for future in futures:
+        future.result()
         done += 1
         if on_progress is not None:
             on_progress(done, total)
@@ -467,15 +482,9 @@ class ImportPreviewDialog(Adw.Dialog):
             total = sum(counts.values())
             if total_posters:
                 _set_progress("Fetching posters…")
-                for tmdb_id, media_type in poster_targets:
-                    try:
-                        if media_type == "show":
-                            movie = service.get_show(tmdb_id, refresh=True)
-                        else:
-                            movie = service.get_movie(tmdb_id, refresh=True)
-                        _prefetch_poster(movie.poster_url)
-                    except Exception:
-                        pass
+                futures = _fetch_posters(poster_targets, service)
+                for future in futures:
+                    future.result()
                     _poster_done[0] += 1
                     _set_progress(
                         f"Downloading posters {_poster_done[0]}/{total_posters}…"

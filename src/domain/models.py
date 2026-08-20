@@ -86,6 +86,48 @@ class CastMember:
 
 
 @dataclass
+class StreamingProvider:
+    provider_id: int
+    provider_name: str
+    logo_url: str | None = None
+    display_priority: int = 0
+    offering_type: str = "flatrate"
+
+
+@dataclass
+class StreamingInfo:
+    country_code: str
+    flatrate: list[StreamingProvider] = field(default_factory=list)
+    rent: list[StreamingProvider] = field(default_factory=list)
+    buy: list[StreamingProvider] = field(default_factory=list)
+    ads: list[StreamingProvider] = field(default_factory=list)
+    free: list[StreamingProvider] = field(default_factory=list)
+
+    def rent_buy(self) -> list[StreamingProvider]:
+        """Merged rent and buy list with duplicates removed by provider_id."""
+        seen = set()
+        combined = []
+        for p in self.buy + self.rent:
+            if p.provider_id not in seen:
+                seen.add(p.provider_id)
+                combined.append(p)
+        return sorted(combined, key=lambda x: x.display_priority)
+
+    def offering_types(self) -> list[str]:
+        """Group labels in a stable order: flatrate, rent_buy, ads, free."""
+        types = []
+        if self.flatrate:
+            types.append("flatrate")
+        if self.buy or self.rent:
+            types.append("rent_buy")
+        if self.ads:
+            types.append("ads")
+        if self.free:
+            types.append("free")
+        return types
+
+
+@dataclass
 class Stats:
     movies_watched: int = 0
     shows_watched: int = 0

@@ -113,9 +113,10 @@ class SearchPage(Adw.Bin):
         return box, grid
 
     def _set_mode(self, mode):
-        if mode == self._mode:
+        if mode not in ("all", "movies", "shows"):
             return
         self._mode = mode
+        self._sync_toggle_buttons()
         if self._query and not self._reload_pending:
             self._reload_pending = True
             self._fade_out_then_search()
@@ -123,6 +124,20 @@ class SearchPage(Adw.Bin):
             self._populate_trending(
                 self._render_gen, self._trending_movies, self._trending_shows
             )
+
+    def _sync_toggle_buttons(self):
+        """Mirror self._mode onto the on-page toggle buttons without
+        re-triggering the toggled handlers."""
+        for btn in (self.all_toggle, self.movie_toggle, self.show_toggle):
+            btn.handler_block_by_func(self._on_filter_toggled)
+        if self._mode == "all":
+            self.all_toggle.set_active(True)
+        elif self._mode == "movies":
+            self.movie_toggle.set_active(True)
+        else:
+            self.show_toggle.set_active(True)
+        for btn in (self.all_toggle, self.movie_toggle, self.show_toggle):
+            btn.handler_unblock_by_func(self._on_filter_toggled)
 
     def _fade_out_then_search(self):
         widgets = []
@@ -185,15 +200,10 @@ class SearchPage(Adw.Bin):
             mode = "movies"
         else:
             mode = "shows"
-        self._mode = mode
-        query = self.search_entry.get_text().strip()
-        if query and not self._reload_pending:
-            self._reload_pending = True
-            self._fade_out_then_search()
-        elif self._trending_loaded:
-            self._populate_trending(
-                self._render_gen, self._trending_movies, self._trending_shows
-            )
+        if self.main_page is not None:
+            self.main_page.set_global_mode(mode)
+        else:
+            self._set_mode(mode)
 
     def _on_search(self, entry):
         query = entry.get_text().strip()
