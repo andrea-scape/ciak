@@ -143,7 +143,8 @@ class LocalMediaRepository:
         query = (
             "SELECT w.tmdb_id, w.media_type, w.show_tmdb_id, w.season_number, "
             "w.episode_number, MAX(w.watched_at) AS watched_at, "
-            "m.title, m.year, m.poster_url, m.imdb_id, m.runtime "
+            "m.title, m.year, m.poster_url, m.imdb_id, m.runtime, "
+            "m.collection_id, m.collection_name "
             "FROM watched_items w "
             "LEFT JOIN media_items m ON m.tmdb_id = COALESCE(w.show_tmdb_id, w.tmdb_id) "
         )

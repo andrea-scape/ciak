@@ -62,5 +62,57 @@ class ProfileGallery(ProfileBase):
             container.remove(child)
             child = nxt
 
+    def _populate_sagas(self, watched):
+        self.sagas_section.set_visible(False)
+        groups = {}
+        for row in watched:
+            cid = row.get("collection_id")
+            if not cid:
+                continue
+            group = groups.setdefault(
+                cid,
+                {
+                    "name": row.get("collection_name") or "Collection",
+                    "count": 0,
+                    "poster": row.get("poster_url"),
+                },
+            )
+            group["count"] += 1
+        if not groups:
+            return
+
+        self.sagas_section.set_visible(True)
+        self._clear_reviewed(self.sagas_flowbox)
+
+        for cid in sorted(groups, key=lambda c: groups[c]["name"].lower()):
+            group = groups[cid]
+            button = Gtk.Button()
+            button.add_css_class("flat")
+            button.add_css_class("saga-card")
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            box.set_halign(Gtk.Align.CENTER)
+            box.set_margin_top(14)
+            box.set_margin_bottom(14)
+            icon = Gtk.Image.new_from_icon_name("folder-symbolic")
+            icon.set_pixel_size(30)
+            icon.add_css_class("dim-label")
+            box.append(icon)
+            name = Gtk.Label(label=group["name"])
+            name.add_css_class("heading")
+            name.set_wrap(True)
+            name.set_max_width_chars(20)
+            box.append(name)
+            count = Gtk.Label(label=f"{group['count']} watched")
+            count.add_css_class("caption")
+            count.add_css_class("dim-label")
+            box.append(count)
+            button.set_child(box)
+            if self.main_page is not None:
+                button.connect(
+                    "clicked",
+                    lambda _b, cid=cid, name=group["name"]: self.main_page.show_collection(cid, name),
+                )
+            self.sagas_flowbox.append(button)
+
 
 ProfilePage = ProfileGallery

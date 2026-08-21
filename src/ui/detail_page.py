@@ -171,6 +171,10 @@ class DetailPage(Gtk.Box):
         self.genres_box.set_halign(Gtk.Align.START)
         info_box.append(self.genres_box)
 
+        self.collection_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.collection_box.set_margin_top(8)
+        info_box.append(self.collection_box)
+
         self.overview_label = Gtk.Label()
         self.overview_label.add_css_class("body")
         self.overview_label.set_wrap(True)
@@ -547,6 +551,28 @@ class DetailPage(Gtk.Box):
                 chip.add_css_class("caption")
                 self.genres_box.append(chip)
 
+        if movie.collection_id:
+            col_name = movie.collection_name or "Collection"
+            chip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            chip_box.set_halign(Gtk.Align.START)
+            chip_box.set_margin_top(4)
+            chip_icon = Gtk.Image.new_from_icon_name("folder-symbolic")
+            chip_icon.set_pixel_size(16)
+            chip_box.append(chip_icon)
+            chip_text = Gtk.Label(label=f"Part of: {col_name}")
+            chip_text.add_css_class("collection-chip-label")
+            chip_box.append(chip_text)
+            chip = Gtk.Button()
+            chip.add_css_class("collection-chip")
+            chip.set_can_focus(False)
+            chip.set_halign(Gtk.Align.START)
+            chip.set_child(chip_box)
+            chip.connect(
+                "clicked",
+                lambda _b, cid=movie.collection_id, cn=col_name: self.main_page.show_collection(cid, cn),
+            )
+            self.collection_box.append(chip)
+
         if poster_texture is not None:
             self.poster_area._fixed_paintable.set_texture(poster_texture)
             self.poster_area.set_opacity(1.0)
@@ -794,12 +820,12 @@ class DetailPage(Gtk.Box):
     def _update_action_sensitivity(self):
         """Disable actions that claim a title was seen while it is not
         released yet (future movie premiere or show with no aired episodes).
-        Watched and watchlist stay clickable — clicking one resolves the
-        other (two-way mutual exclusivity)."""
+        The watchlist stays clickable so titles can be added or removed
+        freely regardless of release status."""
         if self.media_type == "movie":
             future = self._movie_release_in_future()
             self.watched_btn.set_sensitive(not future)
-            self.watchlist_btn.set_sensitive(not future)
+            self.watchlist_btn.set_sensitive(True)
             self.rate_btn.set_sensitive(not future)
         else:
             has_no_eps = self._show_has_no_aired_episodes()
@@ -1154,6 +1180,7 @@ class DetailPage(Gtk.Box):
             self.main_page.invalidate_page("history")
             self.main_page.invalidate_page("watchlist")
             self.main_page.invalidate_page("profile")
+            self.main_page.invalidate_page("collection")
         return False
 
     def _set_watched_ui(self):
@@ -1258,6 +1285,7 @@ class DetailPage(Gtk.Box):
             self.main_page.invalidate_page("history")
             self.main_page.invalidate_page("watchlist")
             self.main_page.invalidate_page("profile")
+            self.main_page.invalidate_page("collection")
 
     def _watch_done(self, btn):
         self._recompute_is_watched()

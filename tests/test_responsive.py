@@ -93,6 +93,9 @@ class FakeMetadata:
     def get_show_cast(self, tmdb_id):
         return []
 
+    def get_collection(self, collection_id):
+        return None
+
 
 def _make_window():
     return MainWindow(user_repo=FakeUserRepo(), metadata_service=FakeMetadata())

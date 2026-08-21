@@ -21,6 +21,7 @@ from .history_page import HistoryPage
 from .calendar_page import CalendarPage
 from .profile_page import ProfilePage
 from .detail_page import DetailPage
+from .collection_page import CollectionPage
 from .preferences_page import PreferencesPage
 from .anim import fade_out_group, fade_in_group
 
@@ -85,10 +86,17 @@ class MainPage(Adw.Bin):
         self._detail_page = None
         self._detail_open = False
         self._current_detail_name = "detail_0"
+        self._detail_title = None
+        self._collection_page = None
+        self._collection_open = False
+        self._collection_from_detail = None
+        self._collection_title = None
         self._pending_detail_removal_id = None
         self._pending_headerbar_sync_id = None
         self._headerbar_generation = 0
         self._selecting_sidebar = False
+        self._nav_stack = []
+        self._removal_ids = set()
 
         self._hero_stack_bp = Adw.Breakpoint.new(
             Adw.BreakpointCondition.parse("max-width: 990sp")
@@ -163,35 +171,40 @@ class MainPage(Adw.Bin):
             else:
                 app.set_accels_for_action(f"win.{action_name}", [])
 
-    def _finish_back_state(self, target, delay=150):
-        self._current_page = target
-        self._previous_page = "detail"
+    def _cancel_removals(self):
+        for gid in list(self._removal_ids):
+            try:
+                GLib.source_remove(gid)
+            except Exception:
+                pass
+        self._removal_ids.clear()
 
-        if target == "search":
-            page = self._pages.get("search")
-            if page:
-                page.play_entrance()
-        self._select_sidebar_row(target)
+    def _track_removal(self, delay, child):
+        def _rm(c):
+            parent = c.get_parent()
+            if parent is self.content_stack and self.content_stack.get_visible_child() is not c:
+                self.content_stack.remove(c)
+            return False
 
-        self._cancel_headerbar_sync()
-        self._pending_headerbar_sync_id = GLib.timeout_add(
-            delay, self._sync_headerbar, target
-        )
+        gid = GLib.timeout_add(delay, _rm, child)
+        self._removal_ids.add(gid)
 
-    def _close_detail(self):
-        detail = self._detail_page
-        if detail is None:
+    def _retire_entry(self, entry):
+        if entry[0] == "detail":
+            child = self.content_stack.get_child_by_name(entry[4]) if entry[4] else None
+        elif entry[0] == "collection":
+            child = self.content_stack.get_child_by_name("collection")
+        else:
             return
-        self._detail_page = None
-        self._detail_open = False
-        if hasattr(detail, "cancel"):
-            detail.cancel()
-        parent = detail.get_parent()
-        if parent is not None:
-            parent.remove(detail)
+        if child is not None:
+            self._track_removal(350, child)
+
+    def _cap_stack(self):
+        while len(self._nav_stack) > 32:
+            old = self._nav_stack.pop(0)
+            self._retire_entry(old)
 
     def _navigate_to(self, page_id):
-        self._close_detail()
         self._select_page(page_id)
 
     def _on_open_watchlist_activated(self, _action, _param):
@@ -536,7 +549,7 @@ class MainPage(Adw.Bin):
         self.show_toggle.handler_unblock_by_func(self._on_toggle_changed)
 
     def _on_row_selected(self, list_box, row):
-        if row is None:
+        if row is None or self._selecting_sidebar:
             return
         if list_box is self.list_box:
             self.profile_list_box.unselect_all()
@@ -572,6 +585,10 @@ class MainPage(Adw.Bin):
             if page_id == "search":
                 self.back_btn.set_visible(False)
                 self.toggle_box.set_visible(False)
+            elif page_id == "collection":
+                self.content_title_widget.set_title(self._collection_title or "Collection")
+                self.toggle_box.set_visible(False)
+                self.back_btn.set_visible(True)
             else:
                 self.back_btn.set_visible(False)
                 has_toggle = page_id in PAGES_WITH_TOGGLE
@@ -634,14 +651,17 @@ class MainPage(Adw.Bin):
         if page is not None and hasattr(page, "_load"):
             page._load()
 
-    def _select_page(self, page_id):
-        self._close_detail()
+    def _show_page(self, page_id, slide_back=False):
         if page_id not in self._pages:
             self._pages[page_id] = self._create_page(page_id)
             self.content_stack.add_titled(self._pages[page_id], page_id, PAGE_TITLES.get(page_id, page_id))
 
-        self.content_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        self.content_stack.set_transition_duration(225)
+        if slide_back:
+            self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_RIGHT)
+            self.content_stack.set_transition_duration(400)
+        else:
+            self.content_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+            self.content_stack.set_transition_duration(225)
         self.content_stack.set_visible_child_name(page_id)
         self._refresh_if_stale(page_id)
 
@@ -654,7 +674,11 @@ class MainPage(Adw.Bin):
             page = self._pages.get(page_id)
             if page:
                 page.play_entrance()
-        self._select_sidebar_row(page_id)
+        self._selecting_sidebar = True
+        try:
+            self._select_sidebar_row(page_id)
+        finally:
+            self._selecting_sidebar = False
 
         self._cancel_headerbar_sync()
         duration = self.content_stack.get_transition_duration()
@@ -662,15 +686,26 @@ class MainPage(Adw.Bin):
             duration, self._sync_headerbar, page_id
         )
 
-    def show_detail(self, media_type, item):
-        if self._pending_detail_removal_id:
-            GLib.source_remove(self._pending_detail_removal_id)
-            self._pending_detail_removal_id = None
+    def _select_page(self, page_id):
+        if (
+            self._nav_stack
+            and self._nav_stack[-1] == ("page", page_id)
+            and self._current_page == page_id
+        ):
+            return
+        self._cancel_removals()
+        self._show_page(page_id)
+        self._nav_stack.append(("page", page_id))
+        self._cap_stack()
 
-        new_name = "detail_1" if self._current_detail_name == "detail_0" else "detail_0"
+    def _install_detail(self, media_type, item, slide_right=False):
+        target = "detail_1" if self._current_detail_name == "detail_0" else "detail_0"
 
-        stale = self.content_stack.get_child_by_name(new_name)
-        if stale:
+        stale = self.content_stack.get_child_by_name(target)
+        if stale is not None:
+            for i, entry in enumerate(self._nav_stack):
+                if entry[0] == "detail" and entry[4] == target:
+                    self._nav_stack[i] = ("detail", entry[1], entry[2], entry[3], None)
             if hasattr(stale, "cancel"):
                 stale.cancel()
             self.content_stack.remove(stale)
@@ -678,16 +713,14 @@ class MainPage(Adw.Bin):
         detail = DetailPage(self.win, self.user_repo, self.metadata_service, media_type, item, self)
         self._detail_page = detail
         self._detail_open = True
-        self.content_stack.add_named(detail, new_name)
+        self.content_stack.add_named(detail, target)
 
-        self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT)
+        self.content_stack.set_transition_type(
+            Gtk.StackTransitionType.SLIDE_RIGHT if slide_right else Gtk.StackTransitionType.SLIDE_LEFT
+        )
         self.content_stack.set_transition_duration(400)
-        self.content_stack.set_visible_child_name(new_name)
-        self._current_detail_name = new_name
-
-        if self._current_page != "detail":
-            self._previous_page = self._current_page
-            self._previous_main_page = self._current_page
+        self.content_stack.set_visible_child_name(target)
+        self._current_detail_name = target
         self._current_page = "detail"
 
         if self._hero_narrow:
@@ -701,33 +734,127 @@ class MainPage(Adw.Bin):
             400, self._sync_headerbar_detail, item.title
         )
 
-        outgoing = self.content_stack.get_child_by_name(
-            "detail_1" if new_name == "detail_0" else "detail_0"
-        )
-        if outgoing:
-            if hasattr(outgoing, "cancel"):
-                outgoing.cancel()
-            self._pending_detail_removal_id = GLib.timeout_add(
-                500, self._drop_detail, outgoing
-            )
-
         # Fetch the hero metadata immediately so the title/buttons appear as
         # soon as possible; defer the heavy work (poster decode + related/cast)
         # until after the slide so it never stutters the animation.
         GLib.Thread.new("detail-hero", self._prefetch_hero, media_type, item, detail)
         GLib.timeout_add(400, self._start_detail_rest, media_type, item, detail)
+        return detail, target
+
+    def _reveal_detail(self, child, slot, title):
+        self._detail_page = child
+        self._detail_open = True
+        self._current_detail_name = slot
+        self._detail_title = title
+        self._current_page = "detail"
+
+        self.list_box.unselect_all()
+        self.profile_list_box.unselect_all()
+
+        self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_RIGHT)
+        self.content_stack.set_transition_duration(400)
+        self.content_stack.set_visible_child_name(slot)
+
+        self._cancel_headerbar_sync()
+        self._pending_headerbar_sync_id = GLib.timeout_add(
+            400, self._sync_headerbar_detail, title
+        )
+
+    def show_detail(self, media_type, item):
+        top = self._nav_stack[-1] if self._nav_stack else None
+        if (
+            top is not None
+            and top[0] == "detail"
+            and top[1] == media_type
+            and top[2].tmdb_id == item.tmdb_id
+        ):
+            return
+
+        prev = self._current_page
+        self._cancel_removals()
+        _, slot = self._install_detail(media_type, item)
+        self._detail_title = item.title
+        self._nav_stack.append(("detail", media_type, item, item.title, slot))
+        self._cap_stack()
+
+        if prev != "detail":
+            self._previous_page = prev
+            self._previous_main_page = prev
+
+    def _install_collection(self, collection_id, name, slide_right=False):
+        title = name or "Collection"
+
+        stale = self.content_stack.get_child_by_name("collection")
+        if stale is not None:
+            if hasattr(stale, "cancel"):
+                stale.cancel()
+            self.content_stack.remove(stale)
+
+        page = CollectionPage(
+            self.win, self.user_repo, self.metadata_service, self,
+            collection_id=collection_id, name=title,
+        )
+        self._collection_page = page
+        self._collection_open = True
+        self._collection_title = title
+        self.content_stack.add_named(page, "collection")
+
+        self.content_stack.set_transition_type(
+            Gtk.StackTransitionType.SLIDE_RIGHT if slide_right else Gtk.StackTransitionType.SLIDE_LEFT
+        )
+        self.content_stack.set_transition_duration(400)
+        self.content_stack.set_visible_child_name("collection")
+        self._current_page = "collection"
+
+        self.list_box.unselect_all()
+        self.profile_list_box.unselect_all()
+
+        self._cancel_headerbar_sync()
+        self._pending_headerbar_sync_id = GLib.timeout_add(
+            400, self._sync_headerbar_detail, title
+        )
+
+    def _reveal_collection(self, name):
+        child = self.content_stack.get_child_by_name("collection")
+        if child is None:
+            return False
+        self._collection_page = child
+        self._collection_open = True
+        self._collection_title = name or "Collection"
+        self._current_page = "collection"
+
+        if "collection" in self._stale_pages:
+            self._stale_pages.discard("collection")
+            if hasattr(child, "refresh"):
+                child.refresh()
+
+        self.list_box.unselect_all()
+        self.profile_list_box.unselect_all()
+
+        self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_RIGHT)
+        self.content_stack.set_transition_duration(400)
+        self.content_stack.set_visible_child_name("collection")
+
+        self._cancel_headerbar_sync()
+        self._pending_headerbar_sync_id = GLib.timeout_add(
+            400, self._sync_headerbar_detail, self._collection_title
+        )
+        return True
+
+    def show_collection(self, collection_id, name=None):
+        top = self._nav_stack[-1] if self._nav_stack else None
+        if top is not None and top[0] == "collection" and top[1] == collection_id:
+            return
+
+        self._cancel_removals()
+        self._install_collection(collection_id, name)
+        self._nav_stack.append(("collection", collection_id, self._collection_title))
+        self._cap_stack()
 
     def _start_detail_rest(self, media_type, item, detail):
         if getattr(detail, "_cancelled", False):
             return False
         GLib.Thread.new("detail-rest", self._prefetch_rest, media_type, item, detail)
-        return False
-
-    def _drop_detail(self, detail):
-        parent = detail.get_parent()
-        if parent:
-            parent.remove(detail)
-        self._pending_detail_removal_id = None
         return False
 
     def _prefetch_hero(self, media_type, item, detail_page):
@@ -757,6 +884,18 @@ class MainPage(Adw.Bin):
             if not detail:
                 GLib.idle_add(detail_page._show_error, "Failed to load details. Check your connection.")
                 return
+
+            if (
+                media_type == "movie"
+                and detail.collection_id
+                and not detail.collection_name
+            ):
+                try:
+                    col = self.metadata_service.get_collection(detail.collection_id)
+                    if col:
+                        detail.collection_name = col.name
+                except NetworkError:
+                    pass
 
             detail_page._detail = detail
             detail_page._seasons = hero.get("seasons") or []
@@ -883,29 +1022,27 @@ class MainPage(Adw.Bin):
             return None
 
     def go_back(self):
-        old = self.content_stack.get_child_by_name(self._current_detail_name)
-        if old and hasattr(old, "cancel"):
-            old.cancel()
-        self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_RIGHT)
-        self.content_stack.set_transition_duration(400)
+        if len(self._nav_stack) <= 1:
+            return
+        current = self._nav_stack.pop()
+        self._cancel_removals()
+        self._retire_entry(current)
 
-        target = self._previous_main_page or "watchlist"
-        if target in self._pages:
-            self.content_stack.set_visible_child_name(target)
-            self._refresh_if_stale(target)
-            self._detail_open = False
-            self._detail_page = None
-            self._finish_back_state(target, delay=400)
-        else:
-            self._select_page("watchlist")
-
-        if old:
-            GLib.timeout_add(350, self._safe_remove, old)
-
-    def _safe_remove(self, child):
-        if child.get_parent() is self.content_stack:
-            self.content_stack.remove(child)
-        return False
+        target = self._nav_stack[-1]
+        if target[0] == "page":
+            self._show_page(target[1], slide_back=True)
+        elif target[0] == "detail":
+            _, media_type, item, title, slot = target
+            child = self.content_stack.get_child_by_name(slot) if slot else None
+            if isinstance(child, DetailPage):
+                self._reveal_detail(child, slot, title)
+            else:
+                _, new_slot = self._install_detail(media_type, item, slide_right=True)
+                self._nav_stack[-1] = ("detail", media_type, item, title, new_slot)
+        elif target[0] == "collection":
+            _, cid, name = target
+            if not self._reveal_collection(name):
+                self._install_collection(cid, name, slide_right=True)
 
     def _select_sidebar_row(self, page_id):
         for row in self.list_box:

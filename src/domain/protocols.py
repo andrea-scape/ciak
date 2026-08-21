@@ -155,6 +155,10 @@ class MetadataService(Protocol):
         """Return shows similar to the given show."""
         ...
 
+    def get_collection(self, collection_id: int) -> "Collection | None":
+        """Return a TMDB movie collection (saga/franchise) and its parts."""
+        ...
+
     def get_calendar(self) -> list:
         """Return upcoming episodes for the current week (calendar view)."""
         ...

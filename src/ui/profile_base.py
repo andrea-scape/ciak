@@ -99,6 +99,9 @@ class ProfileBase(Gtk.Box):
 
         content.append(self._spacer(48))
 
+        self.sagas_section = self._build_sagas()
+        content.append(self.sagas_section)
+
         self.reviewed_section = self._build_reviewed()
         content.append(self.reviewed_section)
 
@@ -115,6 +118,25 @@ class ProfileBase(Gtk.Box):
         self._reload_gen += 1
         gen = self._reload_gen
         GLib.Thread.new("profile", self._fetch, gen)
+
+    def _build_sagas(self):
+        section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        section.set_halign(Gtk.Align.CENTER)
+        title_label = Gtk.Label(label="Your sagas")
+        title_label.add_css_class("title-4")
+        title_label.set_halign(Gtk.Align.START)
+        section.append(title_label)
+
+        self.sagas_flowbox = Gtk.FlowBox()
+        self.sagas_flowbox.set_valign(Gtk.Align.START)
+        self.sagas_flowbox.set_homogeneous(True)
+        self.sagas_flowbox.set_column_spacing(20)
+        self.sagas_flowbox.set_row_spacing(28)
+        self.sagas_flowbox.set_min_children_per_line(2)
+        self.sagas_flowbox.set_max_children_per_line(4)
+        self.sagas_flowbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        section.append(self.sagas_flowbox)
+        return section
 
     def _spacer(self, h):
         s = Gtk.Box()
@@ -228,11 +250,14 @@ class ProfileBase(Gtk.Box):
             watched_runtime = self.user_repo.get_watched_runtime()
             ratings = self.user_repo.get_ratings()
             rated = [SimpleNamespace(**r) for r in ratings[:12]]
-            GLib.idle_add(self._populate, gen, stats, wl_stats, watched_runtime, rated)
+            watched = self.user_repo.get_watched_list("movie")
+            GLib.idle_add(
+                self._populate, gen, stats, wl_stats, watched_runtime, rated, watched
+            )
         except sqlite3.Error:
             pass
 
-    def _populate(self, gen, stats, wl_stats, watched_runtime, rated):
+    def _populate(self, gen, stats, wl_stats, watched_runtime, rated, watched):
         if gen != self._reload_gen:
             return False
         stagger_fade_in(self._items, delay_ms=30, duration_ms=250, after_ms=80)
@@ -252,6 +277,7 @@ class ProfileBase(Gtk.Box):
         self._labels["wl_runtime_label"].set_text(watch_time)
 
         self._populate_reviewed(rated)
+        self._populate_sagas(watched)
         return False
 
     def _build_reviewed(self):
@@ -259,3 +285,6 @@ class ProfileBase(Gtk.Box):
 
     def _populate_reviewed(self, rated):
         raise NotImplementedError
+
+    def _populate_sagas(self, watched):
+        self.sagas_section.set_visible(False)

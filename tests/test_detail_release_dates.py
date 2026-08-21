@@ -49,7 +49,8 @@ class MovieReleaseDateTest(unittest.TestCase):
     def test_future_movie_actions_disabled(self):
         # A movie that has not been released yet cannot be marked as seen,
         # so both the watched and the rate button (rating implies watched)
-        # are insensitive.
+        # are insensitive.  The watchlist stays clickable so unreleased
+        # titles can be added and removed freely.
         page = make_page()
         movie = Movie(tmdb_id=42, title="Test Movie", release_date="2099-01-01")
         page.populate_hero(
@@ -57,6 +58,31 @@ class MovieReleaseDateTest(unittest.TestCase):
         )
         self.assertFalse(page.watched_btn.get_sensitive())
         self.assertFalse(page.rate_btn.get_sensitive())
+        self.assertTrue(page.watchlist_btn.get_sensitive())
+
+    def test_future_movie_watchlist_toggle_removes_row(self):
+        class RecordingRepo:
+            def __init__(self):
+                self.removed = []
+                self.added = []
+
+            def remove_from_watchlist(self, tmdb_id, media_type):
+                self.removed.append((tmdb_id, media_type))
+
+            def add_to_watchlist(self, tmdb_id, media_type):
+                self.added.append((tmdb_id, media_type))
+
+        repo = RecordingRepo()
+        item = Movie(tmdb_id=42, title="Test Movie", release_date="2099-01-01")
+        page = DetailPage(object(), repo, object(), "movie", item)
+        movie = Movie(tmdb_id=42, title="Test Movie", release_date="2099-01-01")
+        page.populate_hero(
+            {"detail": movie, "watchlist_ids": {42}, "watched_ids": set(), "rating": 0}
+        )
+        self.assertTrue(page._in_watchlist)
+        page._do_toggle_watchlist(page.watchlist_btn)
+        self.assertEqual(repo.removed, [(42, "movie")])
+        self.assertEqual(repo.added, [])
 
     def test_released_movie_actions_enabled(self):
         page = make_page()

@@ -13,7 +13,7 @@ import sqlite3
 import threading
 import time
 
-from ...domain.models import Movie, Show, Season, Episode, StreamingInfo, StreamingProvider
+from ...domain.models import Movie, Show, Season, Episode, StreamingInfo, StreamingProvider, Collection
 
 _CACHE_TABLES: list[str] = []
 
@@ -40,6 +40,7 @@ _CACHE_MEDIA = _cache_table("""
         genres         TEXT,
         genre_ids      TEXT,
         collection_id  INTEGER,
+        collection_name TEXT,
         tagline        TEXT,
         certification  TEXT,
         status         TEXT,
@@ -84,6 +85,18 @@ _CACHE_EPISODES = _cache_table("""
         poster_url     TEXT,
         cached_at      INTEGER NOT NULL,
         PRIMARY KEY (show_tmdb_id, season_number, episode_number)
+    )
+""")
+
+_CACHE_COLLECTIONS = _cache_table("""
+    CREATE TABLE IF NOT EXISTS tmdb_collections (
+        collection_id  INTEGER PRIMARY KEY,
+        name           TEXT    NOT NULL,
+        overview       TEXT,
+        poster_path    TEXT,
+        backdrop_path  TEXT,
+        parts_json     TEXT,
+        cached_at      INTEGER NOT NULL
     )
 """)
 
@@ -156,6 +169,10 @@ class MetadataCache:
             conn.execute(
                 "ALTER TABLE media_items ADD COLUMN collection_id INTEGER"
             )
+        if "collection_name" not in cols:
+            conn.execute(
+                "ALTER TABLE media_items ADD COLUMN collection_name TEXT"
+            )
         if "next_episode_air_date" not in cols:
             conn.execute(
                 "ALTER TABLE media_items ADD COLUMN next_episode_air_date TEXT"
@@ -196,6 +213,13 @@ class MetadataCache:
             conn.execute(
                 "ALTER TABLE media_items ADD COLUMN providers_cached_at INTEGER"
             )
+        col_cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(tmdb_collections)"
+        ).fetchall()}
+        if "backdrop_path" not in col_cols:
+            conn.execute(
+                "ALTER TABLE tmdb_collections ADD COLUMN backdrop_path TEXT"
+            )
 
     # ------------------------------------------------------------------
     # Media (movies & shows)
@@ -231,6 +255,7 @@ class MetadataCache:
             "genres": json.dumps(media.genres or []),
             "genre_ids": json.dumps(media.genre_ids or []),
             "collection_id": getattr(media, "collection_id", None),
+            "collection_name": getattr(media, "collection_name", None),
             "tagline": getattr(media, "tagline", None),
             "certification": getattr(media, "certification", None),
             "status": getattr(media, "status", None),
@@ -250,14 +275,16 @@ class MetadataCache:
             INSERT OR REPLACE INTO media_items
             (tmdb_id, media_type, title, year, release_date, overview,
              runtime, rating, votes, poster_url, backdrop_url, imdb_id,
-             genres, genre_ids, collection_id, tagline, certification,
+             genres, genre_ids, collection_id, collection_name, tagline,
+             certification,
              status, next_episode_air_date, next_episode_season,
              next_episode_number, next_episode_name, next_episode_still,
              budget, revenue, creators, cached_at, updated_at)
             VALUES (:tmdb_id, :media_type, :title, :year, :release_date,
                     :overview, :runtime, :rating, :votes, :poster_url,
                     :backdrop_url, :imdb_id, :genres, :genre_ids,
-                    :collection_id, :tagline, :certification, :status,
+                    :collection_id, :collection_name, :tagline,
+                    :certification, :status,
                     :next_episode_air_date, :next_episode_season,
                     :next_episode_number, :next_episode_name,
                     :next_episode_still, :budget, :revenue, :creators,
@@ -342,6 +369,105 @@ class MetadataCache:
             logo_url=p.get("logo_url"),
             display_priority=p.get("display_priority") or 0,
             offering_type=p.get("offering_type") or "flatrate",
+        )
+
+    # ------------------------------------------------------------------
+    # TMDB collections
+    # ------------------------------------------------------------------
+
+    def get_collection(self, collection_id: int) -> Collection | None:
+        """Return a cached TMDB collection if within TTL, else None."""
+        row = self._ensure_conn().execute(
+            "SELECT * FROM tmdb_collections WHERE collection_id = ?",
+            (collection_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        if self._is_expired(row["cached_at"]):
+            return None
+        return Collection(
+            collection_id=row["collection_id"],
+            name=row["name"],
+            overview=row["overview"],
+            poster_path=row["poster_path"],
+            backdrop_path=row["backdrop_path"],
+            parts=[self._dict_to_media(m) for m in json.loads(row["parts_json"] or "[]")],
+        )
+
+    def put_collection(self, collection: Collection) -> None:
+        """Store or update a TMDB collection in the cache."""
+        now = int(time.time())
+        self._ensure_conn().execute(
+            """
+            INSERT OR REPLACE INTO tmdb_collections
+            (collection_id, name, overview, poster_path, backdrop_path, parts_json, cached_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                collection.collection_id,
+                collection.name,
+                collection.overview,
+                collection.poster_path,
+                collection.backdrop_path,
+                json.dumps([self._media_to_dict(m) for m in collection.parts]),
+                now,
+            ),
+        )
+        self._ensure_conn().commit()
+
+    @staticmethod
+    def _media_to_dict(m: Movie | Show) -> dict:
+        fields = {
+            "tmdb_id": m.tmdb_id,
+            "media_type": m.media_type,
+            "title": m.title,
+            "year": m.year,
+            "release_date": getattr(m, "release_date", None),
+            "overview": m.overview,
+            "runtime": getattr(m, "runtime", None),
+            "rating": m.rating,
+            "votes": m.votes,
+            "poster_url": m.poster_url,
+            "backdrop_url": m.backdrop_url,
+            "imdb_id": m.imdb_id,
+            "genres": list(m.genres or []),
+            "genre_ids": list(m.genre_ids or []),
+            "collection_id": getattr(m, "collection_id", None),
+            "collection_name": getattr(m, "collection_name", None),
+            "tagline": getattr(m, "tagline", None),
+            "certification": getattr(m, "certification", None),
+        }
+        if m.media_type == "show":
+            fields["status"] = getattr(m, "status", None)
+        return fields
+
+    @classmethod
+    def _dict_to_media(cls, d: dict) -> Movie | Show:
+        common = {
+            "tmdb_id": d.get("tmdb_id"),
+            "title": d.get("title", ""),
+            "year": d.get("year"),
+            "overview": d.get("overview"),
+            "runtime": d.get("runtime"),
+            "rating": d.get("rating"),
+            "votes": d.get("votes"),
+            "poster_url": d.get("poster_url"),
+            "backdrop_url": d.get("backdrop_url"),
+            "imdb_id": d.get("imdb_id"),
+            "genres": list(d.get("genres") or []),
+            "genre_ids": list(d.get("genre_ids") or []),
+            "tagline": d.get("tagline"),
+            "certification": d.get("certification"),
+        }
+        if d.get("media_type") == "show":
+            return Show(status=d.get("status"), **common)
+        return Movie(
+            collection_id=d.get("collection_id"),
+            collection_name=d.get("collection_name"),
+            release_date=d.get("release_date"),
+            budget=d.get("budget"),
+            revenue=d.get("revenue"),
+            **common,
         )
 
     # ------------------------------------------------------------------
@@ -478,6 +604,7 @@ class MetadataCache:
             )
         return Movie(
             collection_id=row["collection_id"],
+            collection_name=row["collection_name"],
             release_date=row["release_date"],
             budget=row["budget"],
             revenue=row["revenue"],

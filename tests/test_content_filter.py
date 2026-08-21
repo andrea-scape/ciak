@@ -19,6 +19,8 @@ if "src.config" not in sys.modules:
     _cfg.APP_VERSION = "0.0.0-test"
     _cfg.APP_NAME = "Ciak"
     sys.modules["src.config"] = _cfg
+else:
+    _cfg = sys.modules["src.config"]
 
 from src.domain.models import Movie
 from src.window import MainWindow
@@ -117,6 +119,9 @@ class FakeMetadata:
 
     def get_show_cast(self, tmdb_id):
         return []
+
+    def get_collection(self, collection_id):
+        return None
 
 
 class ContentFilterTest(unittest.TestCase):

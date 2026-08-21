@@ -7,7 +7,7 @@ API responses.
 """
 
 from ...domain.exceptions import NetworkError
-from ...domain.models import Movie, Show, Season, Episode, CastMember, StreamingInfo, StreamingProvider
+from ...domain.models import Movie, Show, Season, Episode, CastMember, StreamingInfo, StreamingProvider, Collection
 from .client import TmdbClient
 from ..local.cache import MetadataCache
 import httpx
@@ -201,6 +201,34 @@ class TmdbMetadataService:
         return leader + cast
 
     # ------------------------------------------------------------------
+    # Collections (movie sagas/franchises)
+    # ------------------------------------------------------------------
+
+    def get_collection(self, collection_id: int, refresh: bool = False) -> Collection | None:
+        if not refresh:
+            cached = self._cache.get_collection(collection_id)
+            if cached is not None:
+                return cached
+
+        try:
+            raw = self._client.get_collection(collection_id)
+        except (httpx.HTTPError, ValueError) as exc:
+            raise NetworkError(f"Failed to fetch collection {collection_id}: {exc}") from exc
+
+        parts = [self._raw_to_movie(p) for p in raw.get("parts", [])]
+        parts.sort(key=lambda m: m.release_date or "z")
+        collection = Collection(
+            collection_id=raw.get("id") or collection_id,
+            name=raw.get("name") or "Collection",
+            overview=raw.get("overview"),
+            poster_path=self._client._image_url(raw.get("poster_path"), "w342"),
+            backdrop_path=self._client._image_url(raw.get("backdrop_path"), "w780"),
+            parts=parts,
+        )
+        self._cache.put_collection(collection)
+        return collection
+
+    # ------------------------------------------------------------------
     # Related / Similar
     # ------------------------------------------------------------------
 
@@ -211,13 +239,12 @@ class TmdbMetadataService:
         # Collection / saga items first
         if source.collection_id:
             try:
-                col = self._client.get_collection(source.collection_id)
-                priority = [
-                    self._raw_to_movie(p)
-                    for p in col.get("parts", [])
-                    if p.get("id") != tmdb_id
-                ]
-            except httpx.HTTPError:
+                col = self.get_collection(source.collection_id)
+                if col:
+                    priority = [
+                        m for m in col.parts if m.tmdb_id != tmdb_id
+                    ]
+            except NetworkError:
                 pass
 
         # Genre + year discover
@@ -392,6 +419,7 @@ class TmdbMetadataService:
             genres=[g["name"] for g in raw.get("genres", [])],
             genre_ids=self._extract_genre_ids(raw),
             collection_id=(raw.get("belongs_to_collection") or {}).get("id"),
+            collection_name=(raw.get("belongs_to_collection") or {}).get("name"),
             tagline=raw.get("tagline"),
             budget=raw.get("budget"),
             revenue=raw.get("revenue"),

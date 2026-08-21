@@ -37,6 +37,9 @@ _MEDIA_ITEMS = _table(
         backdrop_url   TEXT,
         imdb_id        TEXT,
         genres         TEXT,   -- JSON array
+        genre_ids      TEXT,   -- JSON array
+        collection_id  INTEGER,
+        collection_name TEXT,
         tagline        TEXT,
         certification  TEXT,
         status         TEXT,   -- "returning", "ended", etc. (shows only)

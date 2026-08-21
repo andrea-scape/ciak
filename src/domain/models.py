@@ -17,6 +17,7 @@ class Movie:
     genres: list[str] = field(default_factory=list)
     genre_ids: list[int] = field(default_factory=list)
     collection_id: int | None = None
+    collection_name: str | None = None
     tagline: str | None = None
     certification: str | None = None
     budget: int | None = None
@@ -125,6 +126,16 @@ class StreamingInfo:
         if self.free:
             types.append("free")
         return types
+
+
+@dataclass
+class Collection:
+    collection_id: int
+    name: str
+    overview: str | None = None
+    poster_path: str | None = None
+    backdrop_path: str | None = None
+    parts: list[Movie] = field(default_factory=list)
 
 
 @dataclass

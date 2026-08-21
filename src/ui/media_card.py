@@ -61,9 +61,10 @@ def media_type_label(item):
     return f"TV Show - {start}"
 
 
-def make_media_card(item, main_page=None, footer=None):
+def make_media_card(item, main_page=None, footer=None, watched=False):
     """Build a poster card matching the watchlist design.
-    If footer is provided, it is appended inside the clickable button area."""
+    If footer is provided, it is appended inside the clickable button area.
+    If watched is True, a green check badge is overlaid on the poster corner."""
     button = Gtk.Button()
     button.add_css_class("flat")
     button.add_css_class("movie-card-button")
@@ -95,7 +96,24 @@ def make_media_card(item, main_page=None, footer=None):
     picture.set_size_request(POSTER_W, POSTER_H)
     picture.add_css_class("movie-poster")
     frame.set_child(picture)
-    card.append(frame)
+
+    if watched:
+        overlay = Gtk.Overlay()
+        overlay.set_child(frame)
+        badge = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        badge.add_css_class("poster-badge")
+        badge.add_css_class("watched-badge")
+        badge_image = Gtk.Image.new_from_icon_name("object-select-symbolic")
+        badge_image.set_pixel_size(14)
+        badge.append(badge_image)
+        badge.set_halign(Gtk.Align.END)
+        badge.set_valign(Gtk.Align.START)
+        badge.set_margin_top(6)
+        badge.set_margin_end(6)
+        overlay.add_overlay(badge)
+        card.append(overlay)
+    else:
+        card.append(frame)
 
     info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
     info.set_margin_bottom(12)

@@ -141,6 +141,13 @@ flowbox flowboxchild {
     font-size: x-small;
 }
 
+/* Green "watched" check overlay on collection cards */
+.watched-badge {
+    background: alpha(@success_bg_color, 0.95);
+    color: @success_fg_color;
+    border-radius: 999px;
+}
+
 /* Thumbnail row for list items with posters */
 .thumbnail-row {
     padding: 6px 12px;
@@ -193,6 +200,61 @@ flowbox flowboxchild {
     border-radius: 16px;
     padding: 4px 12px;
     font-size: small;
+}
+
+/* Clickable collection chip on the detail page: its own row, larger than
+   genre chips, filled accent keep pill rounding */
+.detail-page .collection-chip {
+    background: alpha(@accent_bg_color, 0.18);
+    color: @accent_bg_color;
+    border: 1px solid alpha(@accent_bg_color, 0.4);
+    border-radius: 999px;
+    box-shadow: none;
+    padding: 8px 16px;
+}
+
+.detail-page .collection-chip-label {
+    font-size: medium;
+    font-weight: 600;
+}
+
+.detail-page .collection-chip:hover {
+    background: alpha(@accent_bg_color, 0.30);
+}
+
+/* Collection page layout */
+.collection-stats {
+    color: alpha(@window_fg_color, 0.65);
+}
+
+/* Collection page progress bar */
+.collection-progress {
+    margin-top: 10px;
+    margin-bottom: 14px;
+}
+
+/* "Up next" tag on the first unwatched collection card */
+.next-up-tag {
+    background: alpha(@accent_bg_color, 0.18);
+    color: @accent_bg_color;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-weight: 600;
+}
+
+/* Profile "Your sagas" cards */
+.saga-card {
+    background: alpha(@accent_bg_color, 0.08);
+    border-radius: 16px;
+    min-width: 140px;
+}
+
+.saga-card:hover {
+    background: alpha(@accent_bg_color, 0.18);
+}
+
+.saga-card:active {
+    background: alpha(@accent_bg_color, 0.24);
 }
 
 /* Development build chip (fixed blue, independent of accent) */
