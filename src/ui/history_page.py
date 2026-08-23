@@ -1,14 +1,16 @@
 """History: watchlist-style gallery of watched movies and watched episodes."""
 
 import datetime
+import os
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from types import SimpleNamespace
 
-from gi.repository import Gtk, Adw
+from gi.repository import GLib, Gtk, Adw
 
 from .watchlist_page import WatchlistPage
+from . import watched_state
 
 
 def group_episodes_by_day(rows):
@@ -45,10 +47,13 @@ def group_episodes_by_day(rows):
 
 
 class HistoryPage(WatchlistPage):
+    upcoming_enabled = False
+
     def __init__(self, win, user_repo, metadata_service, main_page=None):
         self._added_attr = "watched_at"
         self._sort_labels = ["Recently Watched", "Release Date"]
         self._empty_label = "No history found"
+        self._search_placeholder = "History"
         super().__init__(win, user_repo, metadata_service, main_page)
 
     def _get_items(self, mode):
@@ -63,3 +68,33 @@ class HistoryPage(WatchlistPage):
             shows = []
 
         return movies, shows
+
+    def _early_badges(self, movies, shows):
+        """Every history movie is watched by definition — known instantly."""
+        return frozenset(m.tmdb_id for m in movies)
+
+    def _late_badges(self, movies, shows):
+        """Show cards earn the check once every aired episode is seen.
+        Results stream back per show so each badge appears as soon as its
+        check resolves instead of waiting for the whole batch; computed
+        off-thread so rendering never waits."""
+        show_ids = {s.tmdb_id for s in shows}
+        if os.environ.get("CIK_DEBUG"):
+            print(f"[history] requesting watched checks for {len(show_ids)} shows")
+        passed = set()
+
+        def _on_result(show_id, caught_up):
+            if caught_up:
+                passed.add(show_id)
+                GLib.idle_add(
+                    self._apply_late_badges, self._reload_token, {show_id}
+                )
+
+        watched_state.caught_up_show_ids(
+            self.user_repo, self.metadata_service, show_ids,
+            on_result=_on_result,
+        )
+        if os.environ.get("CIK_DEBUG"):
+            print(f"[history] badges: requested={len(show_ids)} "
+                  f"passed={len(passed)}")
+        return frozenset()

@@ -23,7 +23,13 @@ from .profile_page import ProfilePage
 from .detail_page import DetailPage
 from .collection_page import CollectionPage
 from .preferences_page import PreferencesPage
-from .anim import fade_out_group, fade_in_group
+from .anim import (
+    MICRO_FADE_MS,
+    NAV_CROSSFADE_MS,
+    NAV_SLIDE_MS,
+    fade_out_group,
+    fade_in_group,
+)
 
 
 PAGE_TITLES = {
@@ -50,8 +56,8 @@ class MainPage(Adw.Bin):
         split_view = Adw.OverlaySplitView()
         split_view.set_collapsed(False)
         split_view.set_pin_sidebar(True)
-        split_view.set_min_sidebar_width(208)
-        split_view.set_max_sidebar_width(208)
+        split_view.set_min_sidebar_width(220)
+        split_view.set_max_sidebar_width(220)
 
         root_bin = Adw.BreakpointBin()
         root_bin.set_size_request(750, 750)
@@ -160,6 +166,17 @@ class MainPage(Adw.Bin):
             )
             self._win_settings_changed_id_accels.append(sig_id)
 
+        # Watchlist must refresh immediately when the unreleased filter
+        # is toggled in Preferences.
+        self.win.settings.connect(
+            "changed::hide-unreleased",
+            lambda s, k: (
+                self.invalidate_page("watchlist"),
+                self._refresh_if_stale("watchlist")
+                if self._current_page == "watchlist" else None,
+            ),
+        )
+
     def _update_accels(self):
         app = self.win.get_application()
         if app is None:
@@ -172,11 +189,12 @@ class MainPage(Adw.Bin):
                 app.set_accels_for_action(f"win.{action_name}", [])
 
     def _cancel_removals(self):
+        ctx = GLib.MainContext.default()
         for gid in list(self._removal_ids):
-            try:
+            # Sources that already fired would make source_remove emit a
+            # GTK warning.
+            if ctx.find_source_by_id(gid) is not None:
                 GLib.source_remove(gid)
-            except Exception:
-                pass
         self._removal_ids.clear()
 
     def _track_removal(self, delay, child):
@@ -376,6 +394,15 @@ class MainPage(Adw.Bin):
 
         sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
+        lib_label = Gtk.Label(label="Library")
+        lib_label.add_css_class("caption")
+        lib_label.add_css_class("dim-label")
+        lib_label.set_halign(Gtk.Align.START)
+        lib_label.set_margin_start(12)
+        lib_label.set_margin_top(8)
+        lib_label.set_margin_bottom(2)
+        sidebar_box.append(lib_label)
+
         self.list_box = Gtk.ListBox()
         self.list_box.add_css_class("navigation-sidebar")
         self.list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
@@ -396,7 +423,14 @@ class MainPage(Adw.Bin):
         self.list_box.connect("row-selected", self._on_row_selected)
         sidebar_box.append(self.list_box)
 
-        sidebar_box.append(Gtk.Separator(margin_top=6, margin_bottom=6))
+        you_label = Gtk.Label(label="You")
+        you_label.add_css_class("caption")
+        you_label.add_css_class("dim-label")
+        you_label.set_halign(Gtk.Align.START)
+        you_label.set_margin_start(12)
+        you_label.set_margin_top(14)
+        you_label.set_margin_bottom(2)
+        sidebar_box.append(you_label)
 
         self.profile_list_box = Gtk.ListBox()
         self.profile_list_box.add_css_class("navigation-sidebar")
@@ -406,15 +440,18 @@ class MainPage(Adw.Bin):
             ("profile", "Gallery", "avatar-default-symbolic"),
         ]
 
-        username = getpass.getuser()
+        username = getpass.getuser() or "Profile"
         for page_id, label, icon_name in profile_items:
-            row = Adw.ActionRow(title=username if username else "Profile")
-            row.add_prefix(Gtk.Image.new_from_icon_name(icon_name))
+            avatar = Adw.Avatar.new(24, username, True)
+            row = Adw.ActionRow(title=username)
+            row.add_prefix(avatar)
             row._page_id = page_id
             self.profile_list_box.append(row)
 
         self.profile_list_box.connect("row-selected", self._on_row_selected)
         sidebar_box.append(self.profile_list_box)
+
+
 
         scroll.set_child(sidebar_box)
         sidebar_tv.set_content(scroll)
@@ -486,7 +523,7 @@ class MainPage(Adw.Bin):
 
         self.content_stack = Gtk.Stack()
         self.content_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        self.content_stack.set_transition_duration(150)
+        self.content_stack.set_transition_duration(NAV_CROSSFADE_MS)
         self.content_stack.set_hexpand(True)
         self.content_stack.set_vexpand(True)
         self._content_bin = Adw.BreakpointBin()
@@ -551,10 +588,9 @@ class MainPage(Adw.Bin):
     def _on_row_selected(self, list_box, row):
         if row is None or self._selecting_sidebar:
             return
-        if list_box is self.list_box:
-            self.profile_list_box.unselect_all()
-        else:
-            self.list_box.unselect_all()
+        for box in (self.list_box, self.profile_list_box):
+            if box is not list_box:
+                box.unselect_all()
         self._select_page(row._page_id)
 
     def _cancel_headerbar_sync(self):
@@ -599,7 +635,7 @@ class MainPage(Adw.Bin):
                         self._sync_toggle(page._mode)
 
             newly_visible = [w for w in widgets if w.get_visible()]
-            fade_in_group(newly_visible, 150)
+            fade_in_group(newly_visible, MICRO_FADE_MS)
 
         if currently_visible:
             fade_out_group(currently_visible, 112, _apply_and_fade_in)
@@ -630,7 +666,7 @@ class MainPage(Adw.Bin):
             self.back_btn.set_visible(True)
 
             newly_visible = [w for w in widgets if w.get_visible()]
-            fade_in_group(newly_visible, 150)
+            fade_in_group(newly_visible, MICRO_FADE_MS)
 
         if currently_visible:
             fade_out_group(currently_visible, 112, _apply_and_fade_in)
@@ -649,7 +685,9 @@ class MainPage(Adw.Bin):
         self._stale_pages.discard(page_id)
         page = self._pages.get(page_id)
         if page is not None and hasattr(page, "_load"):
-            page._load()
+            # Defer the reload so it never competes with the page
+            # transition's first frames.
+            GLib.timeout_add(70, page._load)
 
     def _show_page(self, page_id, slide_back=False):
         if page_id not in self._pages:
@@ -658,10 +696,10 @@ class MainPage(Adw.Bin):
 
         if slide_back:
             self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_RIGHT)
-            self.content_stack.set_transition_duration(400)
+            self.content_stack.set_transition_duration(NAV_SLIDE_MS)
         else:
             self.content_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-            self.content_stack.set_transition_duration(225)
+            self.content_stack.set_transition_duration(NAV_CROSSFADE_MS)
         self.content_stack.set_visible_child_name(page_id)
         self._refresh_if_stale(page_id)
 
@@ -718,7 +756,7 @@ class MainPage(Adw.Bin):
         self.content_stack.set_transition_type(
             Gtk.StackTransitionType.SLIDE_RIGHT if slide_right else Gtk.StackTransitionType.SLIDE_LEFT
         )
-        self.content_stack.set_transition_duration(400)
+        self.content_stack.set_transition_duration(NAV_SLIDE_MS)
         self.content_stack.set_visible_child_name(target)
         self._current_detail_name = target
         self._current_page = "detail"
@@ -752,7 +790,7 @@ class MainPage(Adw.Bin):
         self.profile_list_box.unselect_all()
 
         self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_RIGHT)
-        self.content_stack.set_transition_duration(400)
+        self.content_stack.set_transition_duration(NAV_SLIDE_MS)
         self.content_stack.set_visible_child_name(slot)
 
         self._cancel_headerbar_sync()
@@ -802,7 +840,7 @@ class MainPage(Adw.Bin):
         self.content_stack.set_transition_type(
             Gtk.StackTransitionType.SLIDE_RIGHT if slide_right else Gtk.StackTransitionType.SLIDE_LEFT
         )
-        self.content_stack.set_transition_duration(400)
+        self.content_stack.set_transition_duration(NAV_SLIDE_MS)
         self.content_stack.set_visible_child_name("collection")
         self._current_page = "collection"
 
@@ -832,7 +870,7 @@ class MainPage(Adw.Bin):
         self.profile_list_box.unselect_all()
 
         self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_RIGHT)
-        self.content_stack.set_transition_duration(400)
+        self.content_stack.set_transition_duration(NAV_SLIDE_MS)
         self.content_stack.set_visible_child_name("collection")
 
         self._cancel_headerbar_sync()
@@ -973,9 +1011,19 @@ class MainPage(Adw.Bin):
             self._run_fetch_group(lazy, lazy_keys)
             if getattr(detail_page, "_cancelled", False):
                 return
-            detail_page.populate_related(lazy.get("related", []))
-            detail_page.populate_cast(lazy.get("cast", []))
-            detail_page.populate_streaming(lazy.get("streaming") if show_streaming else None)
+            # Secondary sections wait for the hero's rise to finish so
+            # hero posters win the first frames.
+            from .anim import ENTRANCE_MS
+            GLib.timeout_add(
+                ENTRANCE_MS + 150,
+                lambda: (
+                    detail_page.populate_related(lazy.get("related", [])),
+                    detail_page.populate_cast(lazy.get("cast", [])),
+                    detail_page.populate_streaming(
+                        lazy.get("streaming") if show_streaming else None),
+                    False,
+                )[3],
+            )
         except NetworkError:
             pass
 

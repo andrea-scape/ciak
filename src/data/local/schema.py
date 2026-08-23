@@ -153,6 +153,23 @@ _VERSION = _table(
     """
 )
 
+# Persistent watched-verdicts: caught-up / fully-watched answers cached
+# across sessions, keyed by a cheap local fingerprint (watched-episode
+# count) so any watch/unwatch self-invalidates. IF NOT EXISTS keeps old
+# databases compatible without a migration step.
+_WATCHED_VERDICTS = _table(
+    """
+    CREATE TABLE IF NOT EXISTS watched_verdicts (
+        show_tmdb_id INTEGER NOT NULL,
+        kind         TEXT    NOT NULL CHECK (kind IN ('caught_up', 'fully_watched')),
+        verdict      INTEGER NOT NULL,
+        fingerprint  TEXT    NOT NULL,
+        computed_at  REAL    NOT NULL,
+        PRIMARY KEY (show_tmdb_id, kind)
+    )
+    """
+)
+
 
 def initialize(conn) -> None:
     """Create all tables and apply pending migrations."""

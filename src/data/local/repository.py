@@ -29,6 +29,16 @@ class LocalMediaRepository:
         self._local = threading.local()
         self._conns: list[sqlite3.Connection] = []
         self._conns_lock = threading.Lock()
+        # Incremented by every mutation that affects derived views
+        # (watchlist, watched state); lets pages invalidate caches cheaply.
+        self._data_version = 0
+
+    @property
+    def data_version(self) -> int:
+        return self._data_version
+
+    def _bump_data_version(self) -> None:
+        self._data_version += 1
 
     # ------------------------------------------------------------------
     # Connection management
@@ -95,6 +105,7 @@ class LocalMediaRepository:
             ),
         )
         conn.commit()
+        self._bump_data_version()
 
     def mark_unwatched(
         self,
@@ -113,6 +124,7 @@ class LocalMediaRepository:
             (tmdb_id, show_tmdb_id, season_number, episode_number),
         )
         conn.commit()
+        self._bump_data_version()
 
     def is_watched(
         self,
@@ -144,7 +156,7 @@ class LocalMediaRepository:
             "SELECT w.tmdb_id, w.media_type, w.show_tmdb_id, w.season_number, "
             "w.episode_number, MAX(w.watched_at) AS watched_at, "
             "m.title, m.year, m.poster_url, m.imdb_id, m.runtime, "
-            "m.collection_id, m.collection_name "
+            "m.collection_id, m.collection_name, m.genres "
             "FROM watched_items w "
             "LEFT JOIN media_items m ON m.tmdb_id = COALESCE(w.show_tmdb_id, w.tmdb_id) "
         )
@@ -181,14 +193,47 @@ class LocalMediaRepository:
             ).fetchall()
         return {r[0] for r in rows}
 
+    def is_whole_show_watched(self, show_tmdb_id: int) -> bool:
+        """True when a whole-show mark exists for this id.
+
+        Covers both modern rows (show_tmdb_id set) and legacy/imported
+        rows where media_type='show' carries the id in tmdb_id. A
+        wholesale mark means the user declared the show seen."""
+        conn = self._ensure_conn()
+        row = conn.execute(
+            "SELECT 1 FROM watched_items "
+            "WHERE media_type = 'show' "
+            "AND COALESCE(show_tmdb_id, tmdb_id) = ? LIMIT 1",
+            (show_tmdb_id,),
+        ).fetchone()
+        return row is not None
+
+    def get_show_status(self, show_tmdb_id: int):
+        """Return the cached TMDB status ("Ended", "Returning Series", …)
+        for a show, or None when unknown."""
+        conn = self._ensure_conn()
+        row = conn.execute(
+            "SELECT status FROM media_items WHERE tmdb_id = ?",
+            (show_tmdb_id,),
+        ).fetchone()
+        return row[0] if row is not None else None
+
     def get_watched_show_ids(self) -> set[int]:
-        """Return unique show_tmdb_ids that have at least one watched episode."""
+        """Return unique show ids with at least one watched episode.
+
+        Falls back to tmdb_id for whole-show rows (media_type='show')
+        whose show_tmdb_id is NULL — legacy/imported entries must stay
+        eligible for watched checks."""
         conn = self._ensure_conn()
         rows = conn.execute(
-            "SELECT DISTINCT show_tmdb_id FROM watched_items "
-            "WHERE show_tmdb_id IS NOT NULL"
+            "SELECT DISTINCT COALESCE("
+            "  show_tmdb_id,"
+            "  CASE WHEN media_type = 'show' THEN tmdb_id END"
+            ") FROM watched_items "
+            "WHERE show_tmdb_id IS NOT NULL "
+            "   OR (media_type = 'show' AND tmdb_id IS NOT NULL)"
         ).fetchall()
-        return {r[0] for r in rows}
+        return {r[0] for r in rows if r[0] is not None}
 
     def get_watched_episodes_for_show(self, show_tmdb_id: int) -> set[tuple]:
         """Return set of (season_number, episode_number) for watched episodes."""
@@ -232,6 +277,7 @@ class LocalMediaRepository:
             (tmdb_id, media_type, now),
         )
         conn.commit()
+        self._bump_data_version()
 
     def remove_from_watchlist(self, tmdb_id: int, media_type: str) -> None:
         conn = self._ensure_conn()
@@ -240,13 +286,14 @@ class LocalMediaRepository:
             (tmdb_id, media_type),
         )
         conn.commit()
+        self._bump_data_version()
 
     def get_watchlist(self, media_type: str | None = None) -> list[dict]:
         """Return watchlist items as dicts (joined with media_items for metadata)."""
         conn = self._ensure_conn()
         query = (
             "SELECT wl.tmdb_id, wl.media_type, wl.added_at, "
-            "m.title, m.year, m.poster_url, m.runtime, m.imdb_id "
+            "m.title, m.year, m.poster_url, m.runtime, m.imdb_id, m.genres "
             "FROM watchlist_items wl "
             "LEFT JOIN media_items m ON wl.tmdb_id = m.tmdb_id"
         )
@@ -358,7 +405,60 @@ class LocalMediaRepository:
     # Stats
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Watched-verdict persistence (caught-up / fully-watched)
+    # ------------------------------------------------------------------
+
+    def get_watched_verdict(self, show_tmdb_id: int, kind: str,
+                            fingerprint: str, max_age_s: float | None = 21600.0):
+        """Return the persisted verdict for this show/kind when a matching
+        fingerprint exists and is fresh enough, else None.
+
+        max_age_s=None means the verdict never expires — used for ended
+        shows whose aired set can no longer change."""
+        import time as _time
+        params: list = [show_tmdb_id, kind, fingerprint]
+        query = ("SELECT verdict FROM watched_verdicts "
+                 "WHERE show_tmdb_id = ? AND kind = ? AND fingerprint = ?")
+        if max_age_s is not None:
+            query += " AND computed_at > ?"
+            params.append(_time.time() - max_age_s)
+        row = self._ensure_conn().execute(query, tuple(params)).fetchone()
+        return bool(row[0]) if row is not None else None
+
+    def store_watched_verdict(self, show_tmdb_id: int, kind: str,
+                              verdict: bool, fingerprint: str) -> None:
+        """Persist a computed verdict. Deliberately does NOT bump
+        data_version — the fingerprint already tracks watched changes."""
+        import time as _time
+        conn = self._ensure_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO watched_verdicts "
+            "(show_tmdb_id, kind, verdict, fingerprint, computed_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (show_tmdb_id, kind, int(bool(verdict)), fingerprint,
+             _time.time()),
+        )
+        conn.commit()
+
+    def _memo_by_version(self, key, fn):
+        """Cache fn() per data_version: repeat calls with unchanged data
+        skip the work entirely; any mutation invalidates automatically."""
+        cache = getattr(self, "_version_memo", None)
+        if cache is None:
+            cache = self._version_memo = {}
+        version = self._data_version
+        hit = cache.get(key)
+        if hit is not None and hit[0] == version:
+            return hit[1]
+        value = fn()
+        cache[key] = (version, value)
+        return value
+
     def get_stats(self) -> Stats:
+        return self._memo_by_version("stats", self._compute_stats)
+
+    def _compute_stats(self) -> Stats:
         conn = self._ensure_conn()
         return Stats(
             movies_watched=conn.execute(
@@ -383,6 +483,10 @@ class LocalMediaRepository:
         )
 
     def get_watchlist_stats(self) -> dict:
+        return self._memo_by_version(
+            "watchlist_stats", self._compute_watchlist_stats)
+
+    def _compute_watchlist_stats(self) -> dict:
         conn = self._ensure_conn()
         movie_count = conn.execute(
             "SELECT COUNT(*) FROM watchlist_items WHERE media_type='movie'"
@@ -479,6 +583,10 @@ class LocalMediaRepository:
         Watched episodes whose runtime is not cached are estimated using the
         show's per-episode runtime (media_items.runtime) as a fallback.
         """
+        return self._memo_by_version(
+            "watched_runtime", self._compute_watched_runtime)
+
+    def _compute_watched_runtime(self) -> int:
         conn = self._ensure_conn()
         movies = conn.execute(
             "SELECT COALESCE(SUM(m.runtime), 0) "
@@ -625,6 +733,7 @@ class LocalMediaRepository:
                     ),
                 )
                 count += 1
+        self._bump_data_version()
         return count
 
     def import_watchlist(self, rows: list[dict]) -> int:
@@ -648,6 +757,7 @@ class LocalMediaRepository:
                     (tmdb_id, media_type, added_at),
                 )
                 count += 1
+        self._bump_data_version()
         return count
 
     def import_ratings(self, rows: list[dict]) -> int:

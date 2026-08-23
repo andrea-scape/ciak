@@ -8,6 +8,7 @@ import sqlite3
 from ..domain.models import Movie, Show
 from ..domain.exceptions import NetworkError
 from .poster import create_poster, create_avatar, load_poster, load_avatar, POSTER_SLOTS
+from .. import threads as _pool
 from .painting import FixedPaintable, _load_texture_sync
 
 _OFFERING_LABELS = {
@@ -110,6 +111,8 @@ class DetailPage(Gtk.Box):
         self.action_box.set_margin_top(8)
         info_box.append(self.action_box)
 
+        size_group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+
         self.watchlist_btn = Gtk.Button()
         self.watchlist_btn.add_css_class("suggested-action")
         self.watchlist_btn.add_css_class("pill")
@@ -121,7 +124,9 @@ class DetailPage(Gtk.Box):
         self.watchlist_label = Gtk.Label(label="Add to Watchlist")
         wl_box.append(self.watchlist_label)
         self.watchlist_btn.set_child(wl_box)
+        self.watchlist_btn.set_tooltip_text("Watchlist")
         self.watchlist_btn.connect("clicked", self._toggle_watchlist)
+        size_group.add_widget(self.watchlist_btn)
         self.action_box.append(self.watchlist_btn)
 
         self.watched_btn = Gtk.Button()
@@ -131,10 +136,13 @@ class DetailPage(Gtk.Box):
         w_box.set_halign(Gtk.Align.CENTER)
         self.watched_icon = Gtk.Image(icon_name="object-select-symbolic")
         w_box.append(self.watched_icon)
+        # TV-aware label is applied later by _set_watched_ui.
         self.watched_label = Gtk.Label(label="Mark Watched")
         w_box.append(self.watched_label)
         self.watched_btn.set_child(w_box)
+        self.watched_btn.set_tooltip_text("Watched")
         self.watched_btn.connect("clicked", self._toggle_watched)
+        size_group.add_widget(self.watched_btn)
         self.action_box.append(self.watched_btn)
 
         self.rate_btn = Gtk.Button()
@@ -147,21 +155,27 @@ class DetailPage(Gtk.Box):
         self.rate_label = Gtk.Label(label="Rate")
         r_box.append(self.rate_label)
         self.rate_btn.set_child(r_box)
+        self.rate_btn.set_tooltip_text("Your rating")
         self.rate_btn.connect("clicked", self._rate_item)
+        size_group.add_widget(self.rate_btn)
         self.action_box.append(self.rate_btn)
 
         self.trailer_btn = Gtk.Button()
         self.trailer_btn.add_css_class("pill")
         self.trailer_btn.add_css_class("hero-btn")
-        self.trailer_btn.add_css_class("trailer-btn")
         t_box = Gtk.Box(spacing=6)
         t_box.set_halign(Gtk.Align.CENTER)
         t_box.append(Gtk.Image(icon_name="media-playback-start-symbolic"))
         self.trailer_label = Gtk.Label(label="Trailer")
         t_box.append(self.trailer_label)
         self.trailer_btn.set_child(t_box)
-        self.trailer_btn.connect("clicked", self._open_trailer)
+        self.trailer_btn.set_tooltip_text("Trailer")
+        size_group.add_widget(self.trailer_btn)
         self.action_box.append(self.trailer_btn)
+
+        self._trailer_title = ""
+        self._trailer_year = None
+
 
         self._trailer_title = ""
         self._trailer_year = None
@@ -553,16 +567,40 @@ class DetailPage(Gtk.Box):
 
         if movie.collection_id:
             col_name = movie.collection_name or "Collection"
-            chip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            chip_box.set_halign(Gtk.Align.START)
-            chip_box.set_margin_top(4)
-            chip_icon = Gtk.Image.new_from_icon_name("folder-symbolic")
-            chip_icon.set_pixel_size(16)
-            chip_box.append(chip_icon)
-            chip_text = Gtk.Label(label=f"Part of: {col_name}")
-            chip_text.add_css_class("collection-chip-label")
-            chip_box.append(chip_text)
+            chip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            chip_box.set_margin_start(15)
+            if movie.poster_url:
+                thumb, thumb_pic = create_poster(48, 72, css_class="saga-poster")
+                load_poster(movie.poster_url, thumb_pic)
+                chip_box.append(thumb)
+            else:
+                thumb_pic = None
+                chip_icon = Gtk.Image.new_from_icon_name("folder-symbolic")
+                chip_icon.set_pixel_size(30)
+                chip_icon.add_css_class("dim-label")
+                chip_icon.set_valign(Gtk.Align.CENTER)
+                chip_box.append(chip_icon)
+            text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            text_box.set_valign(Gtk.Align.CENTER)
+            chip_name = Gtk.Label(label=col_name)
+            chip_name.add_css_class("heading")
+            chip_name.set_wrap(True)
+            chip_name.set_max_width_chars(24)
+            chip_name.set_halign(Gtk.Align.START)
+            text_box.append(chip_name)
+            chip_cap = Gtk.Label()
+            chip_cap.add_css_class("caption")
+            chip_cap.add_css_class("dim-label")
+            chip_cap.set_halign(Gtk.Align.START)
+            chip_cap.set_visible(False)
+            text_box.append(chip_cap)
+            chip_box.append(text_box)
+            chevron = Gtk.Image.new_from_icon_name("go-next-symbolic")
+            chevron.set_valign(Gtk.Align.CENTER)
+            chip_box.append(chevron)
             chip = Gtk.Button()
+            chip.add_css_class("flat")
+            chip.add_css_class("saga-button")
             chip.add_css_class("collection-chip")
             chip.set_can_focus(False)
             chip.set_halign(Gtk.Align.START)
@@ -572,6 +610,11 @@ class DetailPage(Gtk.Box):
                 lambda _b, cid=movie.collection_id, cn=col_name: self.main_page.show_collection(cid, cn),
             )
             self.collection_box.append(chip)
+            GLib.Thread.new(
+                "chip-logo", self._fetch_chip_logo,
+                movie.collection_id, thumb_pic, chip_cap,
+                frozenset(watched_ids),
+            )
 
         if poster_texture is not None:
             self.poster_area._fixed_paintable.set_texture(poster_texture)
@@ -587,6 +630,37 @@ class DetailPage(Gtk.Box):
             self._my_rating = my_rating
         self._set_rate_ui()
         self._update_action_sensitivity()
+        return False
+
+    def _fetch_chip_logo(self, collection_id, thumb_pic, chip_cap, watched_ids):
+        """Upgrade the chip thumbnail to the collection's first part poster
+        (same deterministic logo as the profile saga cards) and fill the
+        subtitle with the same "N of M watched" text."""
+        try:
+            col = self.metadata_service.get_collection(collection_id)
+        except Exception:
+            return False
+        if col is None or not getattr(col, "parts", None):
+            return False
+        url = getattr(col.parts[0], "poster_url", None)
+        if url and thumb_pic is not None:
+            GLib.idle_add(self._set_chip_logo, thumb_pic, url)
+        watched_n = sum(
+            1 for m in col.parts if m.tmdb_id in watched_ids
+        )
+        GLib.idle_add(
+            self._set_chip_subtitle, chip_cap,
+            f"{watched_n} of {len(col.parts)} watched",
+        )
+        return False
+
+    def _set_chip_logo(self, thumb_pic, url):
+        load_poster(url, thumb_pic)
+        return False
+
+    def _set_chip_subtitle(self, chip_cap, text):
+        chip_cap.set_text(text)
+        chip_cap.set_visible(True)
         return False
 
     def _populate_show_hero(self, show, seasons, season_episodes, watchlist_ids, watched_ids,
@@ -669,6 +743,16 @@ class DetailPage(Gtk.Box):
 
             expander.connect("notify::expanded", self._on_season_expanded, season, state)
             seasons_list.append(expander)
+
+        # Prewarm the first season's episodes so its first expansion is
+        # instant instead of a visible fetch delay.
+        if self._season_expanders and self.media_type == "show":
+            _first = self._season_expanders[0]
+            _st = _first._season_state
+            if not _st.get("loaded"):
+                _st["loaded"] = True
+                _pool.submit(self._load_season_episodes,
+                             _st["season"], _first, _st)
         self._update_action_sensitivity()
         return False
 
@@ -1148,9 +1232,11 @@ class DetailPage(Gtk.Box):
         if self._in_watchlist:
             self.watchlist_label.set_text("Remove from Watchlist")
             self.watchlist_icon.set_from_icon_name("list-remove-symbolic")
+            self.watchlist_btn.add_css_class("watchlist-active")
         else:
             self.watchlist_label.set_text("Add to Watchlist")
             self.watchlist_icon.set_from_icon_name("view-grid-symbolic")
+            self.watchlist_btn.remove_css_class("watchlist-active")
 
     def _toggle_watchlist(self, btn):
         btn.set_sensitive(False)
@@ -1184,12 +1270,17 @@ class DetailPage(Gtk.Box):
         return False
 
     def _set_watched_ui(self):
-        if self._is_watched:
-            self.watched_label.set_text("Watched")
-            self.watched_btn.add_css_class("watched-active")
+        if not self._is_watched:
+            base = ("Mark all episodes" if self.media_type == "show"
+                    else "Mark Watched")
+            self.watched_label.set_text(base)
+            self.watched_btn.set_tooltip_text(base)
         else:
-            self.watched_label.set_text("Mark Watched")
-            self.watched_btn.remove_css_class("watched-active")
+            self.watched_label.set_text("Watched")
+            self.watched_btn.set_tooltip_text("Watched")
+            # Same check/green language as the poster chips.
+            self.watched_icon.set_from_icon_name("object-select-symbolic")
+            self.watched_btn.add_css_class("watched-active")
 
     def _get_my_rating(self):
         try:
@@ -1203,6 +1294,8 @@ class DetailPage(Gtk.Box):
     def _set_rate_ui(self):
         if self._my_rating > 0:
             self.rate_label.set_text(f"Rated \u2605 {self._my_rating}/5")
+            self.rate_label.set_tooltip_text(
+                f"Your rating \u2605 {self._my_rating}/5")
             self.rate_btn.add_css_class("rated-active")
         else:
             self.rate_label.set_text("Rate")
@@ -1212,7 +1305,69 @@ class DetailPage(Gtk.Box):
         if self._movie_release_in_future():
             return
         btn.set_sensitive(False)
-        self._marking_watched = not self._is_watched
+        marking = not self._is_watched
+        if self.media_type != "show":
+            self._marking_watched = marking
+            GLib.Thread.new("toggle-watched", self._do_toggle_watched, btn)
+            return
+        if marking:
+            GLib.Thread.new(
+                "count-aired", self._confirm_bulk_show, btn, True)
+        else:
+            count = len(self.user_repo.get_watched_episodes_for_show(
+                self.item.tmdb_id))
+            self._show_bulk_confirm(count, btn, marking)
+
+    def _confirm_bulk_show(self, btn, marking):
+        """Gather the aired-episode count off-thread, then ask."""
+        try:
+            count = self._count_aired_episodes()
+        except NetworkError:
+            count = -1
+        GLib.idle_add(self._show_bulk_confirm, count, btn, marking)
+
+    def _count_aired_episodes(self):
+        total = 0
+        for season in self.metadata_service.get_show_seasons(
+                self.item.tmdb_id):
+            if season.season_number <= 0:
+                continue
+            for ep in self.metadata_service.get_season_episodes(
+                    self.item.tmdb_id, season.season_number):
+                if self._is_aired(ep):
+                    total += 1
+        return total
+
+    def _show_bulk_confirm(self, count, btn, marking):
+        btn.set_sensitive(True)
+        n = f"{count} " if count and count > 0 else ""
+        what = ("all aired episodes" if count in (-1, 0, None)
+                else f"all {n}episodes")
+        title = self.item.title or "this show"
+        if marking:
+            dialog = Adw.AlertDialog.new(
+                "Mark episodes as watched?",
+                f"Mark {what} of \u201c{title}\u201d as watched?")
+            confirm_label = "Mark all"
+        else:
+            dialog = Adw.AlertDialog.new(
+                "Remove all marks?",
+                f"Remove every watched mark from \u201c{title}\u201d"
+                + (f" ({count} episodes)" if count and count > 0 else "?"))
+            confirm_label = "Remove marks"
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("confirm", confirm_label)
+        dialog.set_response_appearance(
+            "confirm", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", self._on_bulk_response, marking, btn)
+        dialog.present(self.win)
+        return False
+
+    def _on_bulk_response(self, dialog, response, marking, btn):
+        if response != "confirm":
+            return
+        btn.set_sensitive(False)
+        self._marking_watched = marking
         GLib.Thread.new("toggle-watched", self._do_toggle_watched, btn)
 
     def _do_toggle_watched(self, btn):
@@ -1227,12 +1382,16 @@ class DetailPage(Gtk.Box):
 
     def _do_mark_watched(self):
         if self.media_type == "show":
+            # Keep the watchlist ROW: the fully-watched display filter
+            # hides the show, and it reappears automatically when new
+            # episodes air.
             self._mark_all_watched_show()
         else:
             self.user_repo.mark_watched(self.item.tmdb_id, self.media_type)
-        if self._in_watchlist:
-            self.user_repo.remove_from_watchlist(self.item.tmdb_id, self.media_type)
-            self._in_watchlist = False
+            if self._in_watchlist:
+                self.user_repo.remove_from_watchlist(
+                    self.item.tmdb_id, self.media_type)
+                self._in_watchlist = False
 
     def _do_unmark_watched(self):
         if self.media_type == "show":

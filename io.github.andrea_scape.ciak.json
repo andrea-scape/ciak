@@ -10,7 +10,9 @@
 		"--socket=fallback-x11",
 		"--socket=session-bus",
 		"--share=ipc",
-		"--device=dri"
+		"--device=dri",
+		"--env=GSK_RENDERER=ngl",
+		"--talk-name=org.freedesktop.Flatpak"
 	],
 	"modules": [
 		{

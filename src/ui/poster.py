@@ -10,32 +10,81 @@ import tempfile
 import os
 import threading
 import math
+from collections import OrderedDict
 import cairo
 from .. import poster_cache
 from .. import threads
-from .anim import fade_in
+from .anim import CONTENT_MS, fade_in
 from .painting import FixedPaintable
 
-POSTER_SLOTS = threading.BoundedSemaphore(6)
+POSTER_SLOTS = threading.BoundedSemaphore(8)
 
-# In-memory decode cache: url -> decoded pixbuf. Posters shared across the
-# grid/pages (watchlist + search + history) decode once per process.
-_MEM_PIXBUF: dict[str, object] = {}
-_MEM_MAX = 48
+# Decode ceiling fallback; real targets come from each picture's
+# device size (_bucket_for) so big surfaces stay sharp.
+_DECODE_MAX_W, _DECODE_MAX_H = 320, 480
+
+# In-memory texture cache: url -> Gdk.Texture (LRU-ordered). Every
+# picture widget showing the same URL shares one GPU-resident copy, so
+# grids re-using a poster never re-upload or re-decode it.
+_MEM_PIXBUF: "OrderedDict[str, object]" = OrderedDict()
+_MEM_MAX = 64
+
+
+def _bucket_for(picture):
+    """Device-pixel decode target for this picture: CSS size x scale."""
+    paintable = getattr(picture, "_fixed_paintable", None)
+    w = int(getattr(paintable, "_width", 160) or 160)
+    h = int(getattr(paintable, "_height", 240) or 240)
+    try:
+        scale = max(1, int(picture.get_scale_factor() or 1))
+    except Exception:
+        scale = 1
+    return min(w * scale, 1024), min(h * scale, 1536)
+
+
+def _mem_key(url, max_w, max_h):
+    """Cache key bucketed by decode size so a grid texture and a detail
+    texture of the same poster never collide."""
+    return f"{url}@{max_w}x{max_h}"
 # url -> pending (picture, on_load, delay_ms) waiting on one download.
 _INFLIGHT: dict[str, list] = {}
+
+# Number of async poster loads (network fetch or disk decode) started but
+# not yet applied. Lets pages hold their launch reveal until all posters
+# are ready.
+_pending_loads = 0
+
+
+def _load_started():
+    global _pending_loads
+    _pending_loads += 1
+
+
+def _load_finished():
+    global _pending_loads
+    _pending_loads = max(0, _pending_loads - 1)
+
+
+def pending_loads() -> int:
+    """Outstanding async poster loads (0 when everything settled)."""
+    return _pending_loads
 
 
 def _mem_put(url, pixbuf):
     _MEM_PIXBUF[url] = pixbuf
+    _MEM_PIXBUF.move_to_end(url)
     while len(_MEM_PIXBUF) > _MEM_MAX:
         _MEM_PIXBUF.pop(next(iter(_MEM_PIXBUF)))
 
 
 def get_mem_pixbuf(url):
     """Return the in-memory decoded pixbuf for url, or None. Safe from any
-    thread (GIL-held dict access) — lets other load paths share this cache."""
-    return _MEM_PIXBUF.get(url)
+    thread (GIL-held dict access) — lets other load paths share this cache.
+    Touches the entry so hot posters are evicted last (LRU)."""
+    pixbuf = _MEM_PIXBUF.get(url)
+    if pixbuf is not None:
+        _MEM_PIXBUF.move_to_end(url)
+    return pixbuf
 
 
 def put_mem_pixbuf(url, pixbuf):
@@ -210,20 +259,26 @@ def load_poster(url, picture, on_load=None, delay_ms=0):
         if paintable is not None:
             _apply_placeholder(paintable, picture, on_load, delay_ms)
         return
-    pixbuf = _MEM_PIXBUF.get(url)
-    if pixbuf is not None:
-        GLib.idle_add(_apply_pixbuf, picture, pixbuf, on_load, delay_ms, False, priority=GLib.PRIORITY_LOW)
+    max_w, max_h = _bucket_for(picture)
+    key = _mem_key(url, max_w, max_h)
+    image = _MEM_PIXBUF.get(key)
+    if image is not None:
+        _MEM_PIXBUF.move_to_end(key)
+        GLib.idle_add(_apply_pixbuf, picture, image, on_load, delay_ms, False, priority=GLib.PRIORITY_LOW)
         return
     cached = poster_cache.get(url)
     if cached:
-        threads.submit(_decode_cached, url, cached, picture, on_load, delay_ms)
+        _load_started()
+        threads.submit_poster(_decode_cached, url, key, cached, picture,
+                              on_load, delay_ms, max_w, max_h)
         return
-    # Dedup: one download per URL; latecomers wait for its result.
-    if url in _INFLIGHT:
-        _INFLIGHT[url].append((picture, on_load, delay_ms))
+    # Dedup: one download per URL+size; latecomers wait for its result.
+    if key in _INFLIGHT:
+        _INFLIGHT[key].append((picture, on_load, delay_ms))
         return
-    _INFLIGHT[url] = [(picture, on_load, delay_ms)]
-    threads.submit(_fetch_worker, url)
+    _INFLIGHT[key] = [(picture, on_load, delay_ms)]
+    _load_started()
+    threads.submit_poster(_fetch_worker, url, key, max_w, max_h)
 
 
 def load_avatar(url, paintable, picture, on_load=None, delay_ms=0):
@@ -285,7 +340,7 @@ def _apply_paintable(paintable, picture, pixbuf, on_load, delay_ms, animate=True
             if delay_ms > 0:
                 GLib.timeout_add(delay_ms, _delayed_fade, picture, on_load)
             else:
-                fade_in(picture, 300)
+                fade_in(picture, CONTENT_MS)
                 if on_load:
                     on_load()
         else:
@@ -297,21 +352,41 @@ def _apply_paintable(paintable, picture, pixbuf, on_load, delay_ms, animate=True
     return False
 
 
-def _fetch_worker(url):
+def _apply_and_settle(cb, *args):
+    """Run a queued application callback, then mark that poster load as
+    settled (pixels/placeholder actually applied)."""
+    cb(*args)
+    _load_finished()
+    return False
+
+
+def _fetch_worker(url, key, max_w=_DECODE_MAX_W, max_h=_DECODE_MAX_H):
     """Download+decode one poster in the pool; fan out to in-flight waiters."""
-    waiters = _INFLIGHT.pop(url, [])
+    waiters = _INFLIGHT.pop(key, [])
     data = _download_bytes(url)
-    pixbuf = _decode_bytes(data) if data is not None else None
+    pixbuf = (_decode_bytes(data, max_w, max_h)
+              if data is not None else None)
+    image = pixbuf
     if pixbuf is not None:
-        _mem_put(url, pixbuf)
+        # Immutable value object — safe to create off the main thread;
+        # every picture widget then shares this one GPU-resident copy.
+        try:
+            image = Gdk.Texture.new_for_pixbuf(pixbuf)
+        except (GLib.Error, TypeError):
+            image = pixbuf
+        _mem_put(key, image)
     for picture, on_load, delay_ms in waiters:
-        if pixbuf is not None:
-            GLib.idle_add(_apply_pixbuf, picture, pixbuf, on_load, delay_ms, priority=GLib.PRIORITY_LOW)
+        if image is not None:
+            GLib.idle_add(_apply_and_settle, _apply_pixbuf, picture, image,
+                          on_load, delay_ms, priority=GLib.PRIORITY_LOW)
         else:
             paintable = getattr(picture, "_fixed_paintable", None)
             if paintable is not None:
-                _apply_placeholder(paintable, picture, on_load, delay_ms)
-
+                GLib.idle_add(_apply_and_settle, _apply_placeholder, paintable,
+                              picture, on_load, delay_ms,
+                              priority=GLib.PRIORITY_LOW)
+            else:
+                _load_finished()  # nothing to apply; settle immediately
 
 def _download_bytes(url):
     with POSTER_SLOTS:
@@ -325,12 +400,12 @@ def _download_bytes(url):
             return None
 
 
-def _decode_bytes(data):
+def _decode_bytes(data, max_w=_DECODE_MAX_W, max_h=_DECODE_MAX_H):
     tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
     try:
         tmp.write(data)
         tmp.close()
-        return _decode_file_pixbuf(tmp.name)
+        return _decode_file_pixbuf(tmp.name, max_w, max_h)
     except (GLib.Error, OSError, ValueError):
         return None
     finally:
@@ -340,29 +415,47 @@ def _decode_bytes(data):
             pass
 
 
-def _decode_cached(url, path, picture, on_load, delay_ms):
+def _decode_cached(url, key, path, picture, on_load, delay_ms,
+                   max_w=_DECODE_MAX_W, max_h=_DECODE_MAX_H):
     """Decode a disk-cached poster; the cache file is never deleted."""
-    pixbuf = _decode_file_pixbuf(path)
+    pixbuf = _decode_file_pixbuf(path, max_w, max_h)
     if pixbuf is not None:
-        _mem_put(url, pixbuf)
-        GLib.idle_add(_apply_pixbuf, picture, pixbuf, on_load, delay_ms, False, priority=GLib.PRIORITY_LOW)
+        try:
+            image = Gdk.Texture.new_for_pixbuf(pixbuf)
+        except (GLib.Error, TypeError):
+            image = pixbuf
+        _mem_put(key, image)
+        GLib.idle_add(_apply_and_settle, _apply_pixbuf, picture, image,
+                      on_load, delay_ms, False, priority=GLib.PRIORITY_LOW)
     else:
         paintable = getattr(picture, "_fixed_paintable", None)
         if paintable is not None:
-            _apply_placeholder(paintable, picture, on_load, delay_ms)
+            GLib.idle_add(_apply_and_settle, _apply_placeholder, paintable,
+                          picture, on_load, delay_ms,
+                          priority=GLib.PRIORITY_LOW)
+        else:
+            _load_finished()  # nothing to apply; settle immediately
 
 
-def _decode_file_pixbuf(path):
+# Posters are displayed at <=160x240 (2x for hidpi); decoding at this
+# ceiling instead of full resolution cuts CPU and memory per load.
+def _decode_file_pixbuf(path, max_w=_DECODE_MAX_W, max_h=_DECODE_MAX_H):
     with POSTER_SLOTS:
         try:
-            return GdkPixbuf.Pixbuf.new_from_file(path)
+            return GdkPixbuf.Pixbuf.new_from_file_at_size(
+                path, max_w, max_h
+            )
         except GLib.Error:
             return None
 
 
 def _apply_pixbuf(picture, pixbuf, on_load, delay_ms, animate=True):
     try:
-        texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+        from gi.repository import Gdk as _Gdk
+        if isinstance(pixbuf, _Gdk.Texture):
+            texture = pixbuf  # shared cached copy — no conversion
+        else:
+            texture = Gdk.Texture.new_for_pixbuf(pixbuf)
         fixed = getattr(picture, "_fixed_paintable", None)
         if fixed is not None:
             fixed.set_texture(texture)
@@ -372,7 +465,7 @@ def _apply_pixbuf(picture, pixbuf, on_load, delay_ms, animate=True):
             if delay_ms > 0:
                 GLib.timeout_add(delay_ms, _delayed_fade, picture, on_load)
             else:
-                fade_in(picture, 300)
+                fade_in(picture, CONTENT_MS)
                 if on_load:
                     on_load()
         else:
@@ -385,7 +478,7 @@ def _apply_pixbuf(picture, pixbuf, on_load, delay_ms, animate=True):
 
 
 def _delayed_fade(picture, on_load):
-    fade_in(picture, 300)
+    fade_in(picture, CONTENT_MS)
     if on_load:
         on_load()
     return False

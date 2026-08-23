@@ -30,6 +30,7 @@ class Show:
     tmdb_id: int
     title: str
     year: int | None = None
+    first_air_date: str | None = None
     overview: str | None = None
     status: str | None = None
     runtime: int | None = None

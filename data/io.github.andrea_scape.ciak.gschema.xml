@@ -46,6 +46,10 @@
       <default>false</default>
       <summary>Hide adult content in search results</summary>
     </key>
+    <key name="hide-unreleased" type="b">
+      <default>false</default>
+      <summary>Hide movies and shows that have not premiered yet from the watchlist</summary>
+    </key>
     <key name="show-stats" type="b">
       <default>true</default>
       <summary>Show the stats section on the watchlist page</summary>
@@ -104,6 +108,11 @@
       <default>false</default>
       <summary>Remember content filter</summary>
       <description>Restore the last ALL/Movies/Shows content filter on startup instead of resetting to ALL.</description>
+    </key>
+    <key name="swap-sections" type="b">
+      <default>false</default>
+      <summary>Swap Movies and TV Shows sections</summary>
+      <description>List TV Shows before Movies on the watchlist, search and history pages. Applies after automatic restart.</description>
     </key>
   </schema>
 </schemalist>

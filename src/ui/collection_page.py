@@ -6,7 +6,7 @@ from gi.repository import Gtk, GLib, Adw
 
 from ..domain.exceptions import NetworkError
 from .media_card import make_media_card, config_grid
-from .anim import stagger_fade_in
+from .anim import CONTENT_MS, CONTENT_PX, rise_fade_in
 
 
 class CollectionPage(Adw.Bin):
@@ -59,18 +59,23 @@ class CollectionPage(Adw.Bin):
         self.overview_label.set_visible(False)
         self.content_box.append(self.overview_label)
 
+        self.stats_group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.stats_group.set_margin_top(12)
+        self.stats_group.set_margin_bottom(24)
+        self.stats_group.set_visible(False)
+        self.content_box.append(self.stats_group)
+
         self.stats_label = Gtk.Label()
         self.stats_label.add_css_class("caption")
         self.stats_label.add_css_class("collection-stats")
         self.stats_label.set_xalign(0)
-        self.stats_label.set_visible(False)
-        self.content_box.append(self.stats_label)
+        self.stats_group.append(self.stats_label)
 
         self.progress = Gtk.ProgressBar()
         self.progress.set_halign(Gtk.Align.FILL)
         self.progress.add_css_class("collection-progress")
         self.progress.set_visible(False)
-        self.content_box.append(self.progress)
+        self.stats_group.append(self.progress)
 
         self.grid = Gtk.FlowBox()
         config_grid(self.grid)
@@ -101,8 +106,23 @@ class CollectionPage(Adw.Bin):
             return False
         self._clear()
 
-        if collection is None or not collection.parts:
+        if collection is None:
             self._show_error("Collection not found or unavailable.")
+            return False
+
+        if not collection.parts:
+            empty = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            empty.set_halign(Gtk.Align.CENTER)
+            empty.set_valign(Gtk.Align.CENTER)
+            empty.set_vexpand(True)
+            icon = Gtk.Image(icon_name="folder-videos-symbolic")
+            icon.set_pixel_size(48)
+            icon.add_css_class("dim-label")
+            empty.append(icon)
+            lbl = Gtk.Label(label="No titles in this collection yet")
+            lbl.add_css_class("dim-label")
+            empty.append(lbl)
+            self.content_box.append(empty)
             return False
 
         watched = self.user_repo.get_watched_ids("movie")
@@ -118,6 +138,7 @@ class CollectionPage(Adw.Bin):
             f"{watched_n} of {total} watched · {remaining} remaining"
         )
         self.stats_label.set_visible(True)
+        self.stats_group.set_visible(True)
         if total:
             self.progress.set_fraction(watched_n / total)
             self.progress.set_visible(True)
@@ -140,8 +161,7 @@ class CollectionPage(Adw.Bin):
             self.grid.append(card)
             cards.append(card)
 
-        stagger_fade_in(cards, delay_ms=30, duration_ms=250,
-                        after_ms=60, max_children=48)
+        rise_fade_in(cards, CONTENT_MS, CONTENT_PX)
         return False
 
     # ------------------------------------------------------------------

@@ -196,7 +196,7 @@ class CollectionUITest(unittest.TestCase):
         if chip is None:
             return None
         label = _recursive_find(
-            chip, lambda w: isinstance(w, Gtk.Label) and w.get_text().startswith("Part of:")
+            chip, lambda w: isinstance(w, Gtk.Label) and w.get_text() == "Harry Potter"
         )
         return label
 
@@ -204,7 +204,17 @@ class CollectionUITest(unittest.TestCase):
         page, _ = self._detail_with_chip(1241, "Harry Potter")
         chip = self._find_chip(page)
         self.assertIsNotNone(chip)
-        self.assertEqual(chip.get_text(), "Part of: Harry Potter")
+        self.assertEqual(chip.get_text(), "Harry Potter")
+
+    def test_chip_has_saga_design(self):
+        page, _ = self._detail_with_chip(1241, "Harry Potter")
+        chip = _recursive_find(
+            page.collection_box,
+            lambda w: isinstance(w, Gtk.Button) and "collection-chip" in w.get_css_classes(),
+        )
+        self.assertIsNotNone(chip)
+        self.assertTrue(chip.has_css_class("saga-button"))
+        self.assertFalse(chip.has_css_class("collection-chip-label"))
 
     def test_chip_halign_start(self):
         page, _ = self._detail_with_chip(1241, "Harry Potter")
@@ -301,11 +311,28 @@ class CollectionUITest(unittest.TestCase):
             child = child.get_next_sibling()
         self.assertEqual(count, 3)
 
-    def test_collection_page_error_state(self):
+    def test_collection_page_empty_state(self):
         collection = Collection(collection_id=1241, name="HP", parts=[])
         page = self._make_collection_page(collection)
         page._populate(page._render_gen, collection)
-        self.assertIsNotNone(page._error_label)
+        # Friendly empty state replaces the old error treatment.
+        def _labels(w):
+            out = []
+            c = w.get_first_child()
+            while c:
+                if isinstance(c, Gtk.Label):
+                    out.append(c.get_text())
+                out.extend(_labels(c))
+                c = c.get_next_sibling()
+            return out
+
+        texts = _labels(page.content_box)
+        self.assertTrue(any("No titles" in t for t in texts), texts)
+
+    def test_collection_page_error_state(self):
+        page = self._make_collection_page(None)
+        page._populate(page._render_gen, None)
+        self.assertIsNotNone(getattr(page, "_error_label", None))
 
     def test_collection_page_progress_fraction(self):
         collection = Collection(

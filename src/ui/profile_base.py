@@ -10,7 +10,10 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib
 from types import SimpleNamespace
 
-from .anim import stagger_fade_in
+from . import page_reveal
+from . import poster
+from .anim import CONTENT_MS, CONTENT_PX, animations_enabled, rise_fade_in
+from .media_card import config_grid
 
 
 def _format_duration(total_minutes):
@@ -112,7 +115,17 @@ class ProfileBase(Gtk.Box):
         scrolled.set_vexpand(True)
         scrolled.set_child(clamp)
         self.append(scrolled)
-        self._load()
+        base_reveal = page_reveal.arm_launch_reveal(
+            self, settle_fn=poster.pending_loads)
+        self._revealed = False
+
+        def _reveal_page():
+            self._revealed = True
+            base_reveal()
+
+        self._reveal_page = _reveal_page
+        # Defer the first fetch so it never competes with the page switch.
+        page_reveal.defer_initial_work(self._load)
 
     def _load(self):
         self._reload_gen += 1
@@ -121,20 +134,15 @@ class ProfileBase(Gtk.Box):
 
     def _build_sagas(self):
         section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        section.set_halign(Gtk.Align.CENTER)
+        section.set_margin_top(24)
+        section.set_margin_bottom(36)
         title_label = Gtk.Label(label="Your sagas")
         title_label.add_css_class("title-4")
         title_label.set_halign(Gtk.Align.START)
         section.append(title_label)
 
         self.sagas_flowbox = Gtk.FlowBox()
-        self.sagas_flowbox.set_valign(Gtk.Align.START)
-        self.sagas_flowbox.set_homogeneous(True)
-        self.sagas_flowbox.set_column_spacing(20)
-        self.sagas_flowbox.set_row_spacing(28)
-        self.sagas_flowbox.set_min_children_per_line(2)
-        self.sagas_flowbox.set_max_children_per_line(4)
-        self.sagas_flowbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        config_grid(self.sagas_flowbox)
         section.append(self.sagas_flowbox)
         return section
 
@@ -145,7 +153,6 @@ class ProfileBase(Gtk.Box):
 
     def _add_header(self, content):
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
-        header.set_halign(Gtk.Align.CENTER)
         header.set_margin_bottom(36)
         username = getpass.getuser() or "Profile"
         avatar = Gtk.DrawingArea()
@@ -197,7 +204,6 @@ class ProfileBase(Gtk.Box):
 
     def _build_section(self, title, stat_defs):
         section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        section.set_halign(Gtk.Align.CENTER)
         title_label = Gtk.Label(label=title)
         title_label.add_css_class("title-4")
         title_label.set_halign(Gtk.Align.START)
@@ -240,6 +246,7 @@ class ProfileBase(Gtk.Box):
         lbl.add_css_class("stat-label")
         lbl.add_css_class("caption")
         card.append(lbl)
+        card.set_tooltip_text(label_text)
 
         return card
 
@@ -260,7 +267,10 @@ class ProfileBase(Gtk.Box):
     def _populate(self, gen, stats, wl_stats, watched_runtime, rated, watched):
         if gen != self._reload_gen:
             return False
-        stagger_fade_in(self._items, delay_ms=30, duration_ms=250, after_ms=80)
+        first_load = not self._revealed
+        self._unified_load = first_load
+        if not first_load:
+            rise_fade_in(self._items, CONTENT_MS, CONTENT_PX)
         _animate_stat_value(self._labels["movies_label"], stats.movies_watched)
         _animate_stat_value(self._labels["shows_label"], stats.shows_watched)
         _animate_stat_value(self._labels["episodes_label"], stats.episodes_watched)
@@ -276,8 +286,21 @@ class ProfileBase(Gtk.Box):
             watch_time = f"\u2248{watch_time}"
         self._labels["wl_runtime_label"].set_text(watch_time)
 
-        self._populate_reviewed(rated)
-        self._populate_sagas(watched)
+        # With animations on, give the stat labels a frame before the
+        # heavier card sections build; with animations off there is no
+        # transition to smooth over, so build synchronously.
+        def _build_cards():
+            if gen != self._reload_gen:
+                return False
+            self._populate_reviewed(rated)
+            self._populate_sagas(watched)
+            self._reveal_page()
+            return False
+
+        if first_load and animations_enabled():
+            GLib.idle_add(_build_cards)
+        else:
+            _build_cards()
         return False
 
     def _build_reviewed(self):

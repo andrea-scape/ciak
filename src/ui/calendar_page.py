@@ -11,6 +11,7 @@ import threading
 
 from ..domain.exceptions import NetworkError
 from ..domain.models import Episode
+from .media_card import card_poster_url
 from .poster import create_poster, load_poster
 
 MONTHS_SHORT = [
@@ -38,13 +39,19 @@ class CalendarPage(Gtk.Box):
         self._shows = {}
         self._fetch_gen = 0
 
+        from . import page_reveal
+        from . import poster
+
         today = datetime.date.today()
         self._year = today.year
         self._month = today.month
 
         self._build_nav()
         self._build_body()
-        self._load()
+        self._reveal_page = page_reveal.arm_launch_reveal(
+            self, settle_fn=poster.pending_loads)
+        # Defer the first fetch so it never competes with the page switch.
+        page_reveal.defer_initial_work(self._load)
 
     # ------------------------------------------------------------------
     # Navigation header
@@ -165,6 +172,12 @@ class CalendarPage(Gtk.Box):
     def _load(self):
         self._fetch_gen += 1
         gen = self._fetch_gen
+        # Same-day cache: revisits render instantly, no fan-out.
+        cached = getattr(self, "_day_cache", None)
+        if cached is not None and cached["day"] == datetime.date.today():
+            GLib.idle_add(self._render, gen, cached["airings"],
+                          cached["upcoming"], cached["shows_map"])
+            return
         threading.Thread(target=self._fetch_data, args=(gen,), daemon=True).start()
 
     def _fetch_data(self, gen):
@@ -246,6 +259,12 @@ class CalendarPage(Gtk.Box):
         upcoming.sort(key=lambda x: x[0])
         upcoming = upcoming[:15]
 
+        self._day_cache = {
+            "day": datetime.date.today(),
+            "airings": airings,
+            "upcoming": upcoming,
+            "shows_map": shows_map,
+        }
         GLib.idle_add(self._render, gen, airings, upcoming, shows_map)
 
     def _render_empty(self, gen):
@@ -254,7 +273,26 @@ class CalendarPage(Gtk.Box):
         self._airings = {}
         self._upcoming = []
         self._shows = {}
+        # Friendly explanation instead of a bare, empty month grid.
+        banner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        banner.set_halign(Gtk.Align.CENTER)
+        banner.set_margin_top(18)
+        icon = Gtk.Image(icon_name="alarm-symbolic")
+        icon.set_pixel_size(40)
+        icon.add_css_class("dim-label")
+        banner.append(icon)
+        lbl = Gtk.Label(
+            label="Add TV shows to your watchlist and their airings will show up here.")
+        lbl.add_css_class("dim-label")
+        banner.append(lbl)
+        # Between the top nav bar and the month grid.
+        first = self.get_first_child()
+        if first is not None:
+            self.insert_child_after(banner, first)
+        else:
+            self.append(banner)
         self._render_month()
+        self._reveal_page()
         return False
 
     def _render(self, gen, airings, upcoming, shows_map):
@@ -264,6 +302,7 @@ class CalendarPage(Gtk.Box):
         self._upcoming = upcoming
         self._shows = shows_map
         self._render_month()
+        self._reveal_page()
         return False
 
     # ------------------------------------------------------------------
@@ -333,6 +372,12 @@ class CalendarPage(Gtk.Box):
             gesture = Gtk.GestureClick()
             gesture.connect("pressed", self._on_day_pressed, airing_list, day)
             box.add_controller(gesture)
+            summary = "\n".join(
+                f"{show['title'] if isinstance(show, dict) else show.title}"
+                f" · S{(ep.season_number or 0):02d}E{(ep.episode_number or 0):02d}"
+                for show, ep in airing_list[:4]
+            ) + ("\n…" if len(airing_list) > 4 else "")
+            box.set_tooltip_text(summary)
 
         num = Gtk.Label(label=str(day))
         num.set_halign(Gtk.Align.START)
@@ -348,7 +393,7 @@ class CalendarPage(Gtk.Box):
             content_box.set_margin_end(8)
             content_box.set_margin_bottom(8)
             content_box.set_halign(Gtk.Align.CENTER)
-            content_box.set_valign(Gtk.Align.END)
+            content_box.set_valign(Gtk.Align.CENTER)
             content_box.set_vexpand(True)
 
             if len(airing_list) == 1:
@@ -358,7 +403,7 @@ class CalendarPage(Gtk.Box):
                 poster_btn.add_css_class("cal-poster-btn")
                 box_, picture = create_poster(84, 126, "cal-poster")
                 poster_btn.set_child(box_)
-                load_poster(show.poster_url, picture)
+                load_poster(card_poster_url(show.poster_url), picture)
                 poster_btn.connect("clicked", self._on_show_clicked, show)
                 content_box.append(poster_btn)
             else:

@@ -190,7 +190,7 @@ class CardPosterSizeTest(unittest.TestCase):
         except TypeError:
             pass
 
-    def test_make_media_card_uses_w185_poster(self):
+    def test_make_media_card_normalizes_to_w500_poster(self):
         from unittest import mock
 
         from src.ui import media_card
@@ -204,8 +204,7 @@ class CardPosterSizeTest(unittest.TestCase):
             make_media_card(item)
         self.assertEqual(load.call_count, 1)
         url = load.call_args[0][0]
-        self.assertIn("/w185/", url)
-        self.assertNotIn("/w500/", url)
+        self.assertIn("/w500/", url)
 
     def test_card_url_rewrite_keeps_non_tmdb_urls(self):
         from src.ui.media_card import card_poster_url

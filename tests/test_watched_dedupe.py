@@ -311,3 +311,25 @@ class WatchedMigrationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class WatchedShowIdsFallbackTest(unittest.TestCase):
+    """Whole-show rows with NULL show_tmdb_id must still count as
+    watched shows (legacy/imported entries stay badge-eligible)."""
+
+    def test_whole_show_row_without_show_tmdb_id_is_included(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = os.path.join(d, "db.sqlite")
+            repo = LocalMediaRepository(db)
+            repo.initialize()
+            repo.mark_watched(95350, "show")  # whole-show mark, no episodes
+            ids = repo.get_watched_show_ids()
+            self.assertIn(95350, ids)
+
+    def test_episode_rows_still_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = os.path.join(d, "db.sqlite")
+            repo = LocalMediaRepository(db)
+            repo.initialize()
+            repo.mark_watched(700, "episode", show_tmdb_id=77,
+                              season_number=1, episode_number=1)
+            self.assertEqual(repo.get_watched_show_ids(), {77})

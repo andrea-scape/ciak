@@ -130,6 +130,18 @@ class PreferencesPage(Adw.PreferencesDialog):
         )
         content_group.add(adult_row)
 
+        unreleased_row = Adw.SwitchRow()
+        unreleased_row.set_title("Hide Unreleased Titles")
+        unreleased_row.set_subtitle(
+            "Don't show movies and shows that haven't premiered yet in the Watchlist")
+        self._settings.bind(
+            "hide-unreleased",
+            unreleased_row,
+            "active",
+            Gio.SettingsBindFlags.DEFAULT,
+        )
+        content_group.add(unreleased_row)
+
         show_streaming_row = Adw.SwitchRow()
         show_streaming_row.set_title("Show Streaming Availability")
         show_streaming_row.set_subtitle("Display where movies and TV shows can be streamed, rented, or bought")
@@ -151,6 +163,19 @@ class PreferencesPage(Adw.PreferencesDialog):
             Gio.SettingsBindFlags.DEFAULT,
         )
         content_group.add(remember_filter_row)
+
+        swap_sections_row = Adw.SwitchRow()
+        swap_sections_row.set_title("Swap Movies and TV Shows")
+        swap_sections_row.set_subtitle(
+            "List TV Shows before Movies on watchlist, search and history. Restarts the app."
+        )
+        swap_sections_row.set_active(
+            self._settings.get_boolean("swap-sections")
+        )
+        swap_sections_row.connect(
+            "notify::active", self._on_swap_sections_changed
+        )
+        content_group.add(swap_sections_row)
 
         region_row = Adw.ComboRow()
         region_row.set_title("Streaming Region")
@@ -598,6 +623,24 @@ class PreferencesPage(Adw.PreferencesDialog):
 
     def _on_tmdb_key_changed(self, row):
         self._settings.set_string("tmdb-api-key", row.get_text())
+
+    def _on_swap_sections_changed(self, row, _pspec):
+        self._settings.set_boolean("swap-sections", row.get_active())
+        self._restart_app()
+
+    def _restart_app(self):
+        if getattr(self, "_restarting", False):
+            return
+        self._restarting = True
+        try:
+            GLib.spawn_command_line_async(
+                "sh -c 'sleep 0.4; exec /app/bin/ciak'"
+            )
+        except GLib.Error:
+            pass
+        app = self.win.get_application()
+        if app is not None:
+            app.quit()
 
     def _on_relaunch_onboarding_clicked(self, _row):
         self._settings.set_boolean("onboarding-completed", False)

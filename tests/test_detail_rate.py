@@ -41,6 +41,7 @@ class RatePersistenceTest(unittest.TestCase):
         )
         self.assertEqual(page._my_rating, 4)
         self.assertEqual(page.rate_label.get_text(), "Rated \u2605 4/5")
+        self.assertTrue(page.rate_btn.has_css_class("rated-active"))
 
     def test_populate_hero_shows_rate_when_unrated(self):
         page = make_page()
@@ -55,6 +56,7 @@ class RatePersistenceTest(unittest.TestCase):
         )
         self.assertEqual(page._my_rating, 0)
         self.assertEqual(page.rate_label.get_text(), "Rate")
+        self.assertFalse(page.rate_btn.has_css_class("rated-active"))
 
     def test_populate_hero_without_rating_key_is_graceful(self):
         page = make_page()
@@ -68,6 +70,7 @@ class RatePersistenceTest(unittest.TestCase):
         )
         self.assertEqual(page._my_rating, 0)
         self.assertEqual(page.rate_label.get_text(), "Rate")
+        self.assertFalse(page.rate_btn.has_css_class("rated-active"))
 
 
 if __name__ == "__main__":

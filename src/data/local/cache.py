@@ -100,6 +100,16 @@ _CACHE_COLLECTIONS = _cache_table("""
     )
 """)
 
+# Trending / recent lists: raw TMDB result payloads so the models can be
+# rebuilt without network. Short-lived by design.
+_CACHE_TRENDING = _cache_table("""
+    CREATE TABLE IF NOT EXISTS trending_cache (
+        list_key   TEXT    PRIMARY KEY,
+        payload    TEXT    NOT NULL,
+        fetched_at REAL    NOT NULL
+    )
+""")
+
 
 class MetadataCache:
     """Local SQLite cache for TMDB metadata with configurable TTL.
@@ -374,6 +384,34 @@ class MetadataCache:
     # ------------------------------------------------------------------
     # TMDB collections
     # ------------------------------------------------------------------
+
+    def get_trending_payloads(self, list_key: str, ttl_seconds: float = 7200.0):
+        """Return the stored raw result payloads for a trending/recent
+        list when fresher than ttl_seconds, else None."""
+        import time as _time
+        row = self._ensure_conn().execute(
+            "SELECT payload FROM trending_cache "
+            "WHERE list_key = ? AND fetched_at > ?",
+            (list_key, _time.time() - ttl_seconds),
+        ).fetchone()
+        if row is None:
+            return None
+        import json
+        try:
+            return json.loads(row[0])
+        except ValueError:
+            return None
+
+    def put_trending_payloads(self, list_key: str, results: list) -> None:
+        """Store the raw TMDB 'results' payload for a trending/recent list."""
+        import json
+        import time as _time
+        self._ensure_conn().execute(
+            "INSERT OR REPLACE INTO trending_cache "
+            "(list_key, payload, fetched_at) VALUES (?, ?, ?)",
+            (list_key, json.dumps(results), _time.time()),
+        )
+        self._primary_conn.commit()
 
     def get_collection(self, collection_id: int) -> Collection | None:
         """Return a cached TMDB collection if within TTL, else None."""

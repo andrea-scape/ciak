@@ -16,9 +16,17 @@ import httpx
 class TmdbMetadataService:
     """Read-only TMDB metadata, backed by a local TTL cache."""
 
+    _SEARCH_LRU_CAP = 20
+
     def __init__(self, client: TmdbClient, cache: MetadataCache):
         self._client = client
         self._cache = cache
+        # Session-scoped search results: re-running a recent query is
+        # instant instead of a fresh TMDB round-trip.
+        from collections import OrderedDict
+        import threading
+        self._search_lru: "OrderedDict[tuple, list]" = OrderedDict()
+        self._search_lru_lock = threading.Lock()
 
     def close(self) -> None:
         """Close underlying HTTP clients (safe to call on shutdown)."""
@@ -28,19 +36,47 @@ class TmdbMetadataService:
     # Search (never cached; fresh results expected)
     # ------------------------------------------------------------------
 
+    def _lru_get(self, key):
+        with self._search_lru_lock:
+            hit = self._search_lru.get(key)
+            if hit is not None:
+                self._search_lru.move_to_end(key)
+            return hit
+
+    def _lru_put(self, key, results):
+        with self._search_lru_lock:
+            self._search_lru[key] = results
+            self._search_lru.move_to_end(key)
+            while len(self._search_lru) > self._SEARCH_LRU_CAP:
+                self._search_lru.pop(next(iter(self._search_lru)))
+
     def search_movies(self, query: str) -> list[Movie]:
+        key = ("movie", query.strip().lower())
+        hit = self._lru_get(key)
+        if hit is not None:
+            return hit
         try:
             data = self._client.search_movie(query)
         except (httpx.HTTPError, ValueError) as exc:
             raise NetworkError(f"TMDB search failed: {exc}") from exc
-        return [self._raw_to_movie(item) for item in data.get("results", [])]
+        results = [self._raw_to_movie(item)
+                   for item in data.get("results", [])]
+        self._lru_put(key, results)
+        return results
 
     def search_shows(self, query: str) -> list[Show]:
+        key = ("show", query.strip().lower())
+        hit = self._lru_get(key)
+        if hit is not None:
+            return hit
         try:
             data = self._client.search_tv(query)
         except (httpx.HTTPError, ValueError) as exc:
             raise NetworkError(f"TMDB search failed: {exc}") from exc
-        return [self._raw_to_show(item) for item in data.get("results", [])]
+        results = [self._raw_to_show(item)
+                   for item in data.get("results", [])]
+        self._lru_put(key, results)
+        return results
 
     # ------------------------------------------------------------------
     # Import resolution helpers
@@ -333,15 +369,27 @@ class TmdbMetadataService:
     # Discovery (never cached; dynamic lists)
     # ------------------------------------------------------------------
 
+    _TRENDING_TTL_S = 7200.0
+
     def get_trending(self, media_type: str = "all") -> list:
+        list_key = f"trending_{media_type}"
+        payloads = self._cache.get_trending_payloads(
+            list_key, ttl_seconds=self._TRENDING_TTL_S)
+        if payloads is not None:
+            return self._trending_models(payloads, default_kind=media_type)
         try:
             data = self._client.get_trending(media_type)
         except (httpx.HTTPError, ValueError) as exc:
             raise NetworkError(f"Failed to fetch trending: {exc}") from exc
+        items = data.get("results", [])
+        self._cache.put_trending_payloads(list_key, items[:12])
+        return self._trending_models(items, default_kind=media_type)
+
+    def _trending_models(self, items, default_kind):
         results = []
-        for item in data.get("results", []):
+        for item in items:
             # Type-specific endpoints (/trending/movie/week) omit media_type.
-            kind = item.get("media_type") or media_type
+            kind = item.get("media_type") or default_kind
             if kind == "movie":
                 results.append(self._raw_to_movie(item))
             elif kind == "tv":
@@ -350,19 +398,31 @@ class TmdbMetadataService:
 
     def get_recent_movies(self) -> list[Movie]:
         """Most recently released movies (discover, release date desc)."""
+        payloads = self._cache.get_trending_payloads(
+            "recent_movie", ttl_seconds=self._TRENDING_TTL_S)
+        if payloads is not None:
+            return [self._raw_to_movie(i) for i in payloads]
         try:
             data = self._client.discover_movie(sort_by="primary_release_date.desc")
         except (httpx.HTTPError, ValueError) as exc:
             raise NetworkError(f"Failed to fetch recent movies: {exc}") from exc
-        return [self._raw_to_movie(item) for item in data.get("results", [])]
+        items = data.get("results", [])
+        self._cache.put_trending_payloads("recent_movie", items[:12])
+        return [self._raw_to_movie(item) for item in items]
 
     def get_recent_shows(self) -> list[Show]:
         """Most recently aired TV shows (discover, first air date desc)."""
+        payloads = self._cache.get_trending_payloads(
+            "recent_show", ttl_seconds=self._TRENDING_TTL_S)
+        if payloads is not None:
+            return [self._raw_to_show(i) for i in payloads]
         try:
             data = self._client.discover_tv(sort_by="first_air_date.desc")
         except (httpx.HTTPError, ValueError) as exc:
             raise NetworkError(f"Failed to fetch recent shows: {exc}") from exc
-        return [self._raw_to_show(item) for item in data.get("results", [])]
+        items = data.get("results", [])
+        self._cache.put_trending_payloads("recent_show", items[:12])
+        return [self._raw_to_show(item) for item in items]
 
     def get_popular_movies(self) -> list[Movie]:
         try:
@@ -435,6 +495,7 @@ class TmdbMetadataService:
             tmdb_id=raw["id"],
             title=raw.get("name", "Unknown"),
             year=year,
+            first_air_date=raw.get("first_air_date"),
             overview=raw.get("overview"),
             status=raw.get("status"),
             runtime=episode_runtimes[0] if episode_runtimes else None,

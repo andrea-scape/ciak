@@ -58,7 +58,7 @@ headerbar {
 /* Hero action buttons: quiet 2px lift on hover, gentle press-down on
    release. No glow, no saturation, no bounce. */
 .detail-page .hero-btn {
-    transition: transform 160ms ease;
+    transition: transform 160ms ease, background-color 150ms ease;
     box-shadow: none;
     border: none;
 }
@@ -80,14 +80,20 @@ headerbar {
 }
 
 
+/* Hero buttons: ONE accent family for every sibling action (follows the
+   user's GNOME accent). Soft tint at rest, stronger on hover, strongest
+   while toggled on. Identity comes from icon + label, never from hue.
+   Tiers: rest 0.15 → hover 0.22 → active 0.30 → active-hover 0.40 */
+/* Hero icon toggles: ONE accent family for every sibling action
+   (follows the user's GNOME accent). Default button look at rest; when
+   toggled on, the button fills with a soft accent wash and the icon
+   takes the accent color (Tuba-style). Identity comes from the icon
+   itself. */
 .detail-page .watched-active,
+.detail-page .watchlist-active,
 .detail-page .rated-active {
     background-color: alpha(@accent_color, 0.25);
-}
-
-.detail-page .watched-active:hover,
-.detail-page .rated-active:hover {
-    background-color: alpha(@accent_color, 0.35);
+    color: @accent_color;
 }
 
 .poster-image {
@@ -146,6 +152,11 @@ flowbox flowboxchild {
     background: alpha(@success_bg_color, 0.95);
     color: @success_fg_color;
     border-radius: 999px;
+    /* Symmetric padding = perfect circle around the check icon */
+    padding: 4.5px;
+    /* One canonical inset for every poster surface */
+    margin-top: 8px;
+    margin-right: 8px;
 }
 
 /* Thumbnail row for list items with posters */
@@ -197,30 +208,14 @@ flowbox flowboxchild {
 .chip {
     background: alpha(@accent_bg_color, 0.15);
     color: @accent_bg_color;
-    border-radius: 16px;
-    padding: 4px 12px;
+    border-radius: 999px;
+    padding: 3px 12px;
     font-size: small;
 }
 
-/* Clickable collection chip on the detail page: its own row, larger than
-   genre chips, filled accent keep pill rounding */
-.detail-page .collection-chip {
-    background: alpha(@accent_bg_color, 0.18);
-    color: @accent_bg_color;
-    border: 1px solid alpha(@accent_bg_color, 0.4);
-    border-radius: 999px;
-    box-shadow: none;
-    padding: 8px 16px;
-}
-
-.detail-page .collection-chip-label {
-    font-size: medium;
-    font-weight: 600;
-}
-
-.detail-page .collection-chip:hover {
-    background: alpha(@accent_bg_color, 0.30);
-}
+/* Collection entry on the detail page: same saga-card design as the
+   profile page (thumbnail + name, no pill chrome). The collection-chip
+   class is kept as a test/marker hook only. */
 
 /* Collection page layout */
 .collection-stats {
@@ -229,8 +224,8 @@ flowbox flowboxchild {
 
 /* Collection page progress bar */
 .collection-progress {
-    margin-top: 10px;
-    margin-bottom: 14px;
+    margin-top: 0;
+    margin-bottom: 0;
 }
 
 /* "Up next" tag on the first unwatched collection card */
@@ -354,6 +349,13 @@ flowbox flowboxchild {
     border-radius: 12px;
     border: none;
     box-shadow: 0 4px 12px alpha(black, 0.15);
+    transition: box-shadow 150ms ease;
+}
+
+/* Hover happens on the wrapping button; the frame's shadow deepens
+   with it (same tier as the detail-page poster hover). */
+.ciak-dashboard .movie-card-button:hover .movie-poster-frame {
+    box-shadow: 0 8px 24px alpha(black, 0.25);
 }
 
 .ciak-dashboard .movie-poster-frame > picture {
@@ -563,7 +565,50 @@ flowbox flowboxchild {
     background: color-mix(in srgb, currentColor 7%, transparent);
 }
 
-/* Trailer button: hero-btn lift with YouTube-red accent */
+
+
+/* --- Restored from previous stable deployment --- */
+
+.detail-page .rated-active:hover {
+    background-color: alpha(@accent_color, 0.35);
+}
+
+.saga-poster {
+    border-radius: 8px;
+}
+
+/* Saga buttons: shared base for profile-page sagas and detail chips */
+.ciak-dashboard .movie-card-button,
+.ciak-dashboard .saga-button,
+.detail-page .saga-button {
+    padding: 0;
+    border-radius: 12px;
+    background: transparent;
+    transition: transform 150ms ease, opacity 150ms ease, box-shadow 150ms ease;
+}
+
+.ciak-dashboard .saga-button:hover,
+.detail-page .saga-button:hover {
+    transform: translateY(-2px);
+}
+
+.ciak-dashboard .saga-button:active,
+.detail-page .saga-button:active {
+    transform: translateY(0) scale(0.96);
+}
+
+.ciak-dashboard .saga-button:hover .saga-poster,
+.detail-page .saga-button:hover .saga-poster {
+    box-shadow: 0 8px 24px alpha(black, 0.25);
+}
+
+.detail-page .saga-button {
+    padding: 0;
+    border-radius: 12px;
+    background: transparent;
+    transition: transform 150ms ease, opacity 150ms ease, box-shadow 150ms ease;
+}
+
 .detail-page .trailer-btn {
     background: alpha(@red_2, 0.15);
     color: @red_2;
@@ -576,6 +621,34 @@ flowbox flowboxchild {
 
 .detail-page .trailer-btn:active {
     background: alpha(@red_2, 0.35);
+}
+
+.chip-toggle {
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-size: small;
+    background: alpha(@window_fg_color, 0.08);
+}
+
+.chip-toggle:hover {
+    background: alpha(@window_fg_color, 0.14);
+}
+
+.chip-toggle:checked {
+    background: alpha(@accent_bg_color, 0.15);
+    color: @accent_bg_color;
+}
+
+.navigation-sidebar > row {
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+.saga-check {
+    background: @success_bg_color;
+    color: @success_fg_color;
+    border-radius: 999px;
+    padding: 3px;
 }
 
 /* Profile page initial-letter avatar */
@@ -670,6 +743,12 @@ flowbox flowboxchild {
 
 .cal-poster {
     border-radius: 6px;
+    box-shadow: 0 4px 12px alpha(black, 0.15);
+    transition: box-shadow 150ms ease;
+}
+
+.cal-poster-btn:hover .cal-poster {
+    box-shadow: 0 8px 24px alpha(black, 0.25);
 }
 
 .cal-poster-btn {
@@ -715,4 +794,5 @@ flowbox flowboxchild {
     opacity: 0.6;
     font-size: 0.85rem;
 }
+
 

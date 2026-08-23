@@ -302,5 +302,34 @@ class NavStackTest(unittest.TestCase):
             refresh.assert_not_called()
 
 
+
+
+class DeferredStaleReloadTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            Gtk.init()
+            Adw.init()
+        except TypeError:
+            pass
+
+    def test_stale_reload_is_scheduled_not_inline(self):
+        page = mock.Mock()
+        mp = mock.Mock()
+        mp._pages = {"watchlist": page}
+        mp._stale_pages = {"watchlist"}
+
+        timeouts = []
+        with mock.patch("gi.repository.GLib.timeout_add",
+                        side_effect=lambda ms, cb, *a: timeouts.append((ms, cb)) or 111):
+            MainPage._refresh_if_stale(mp, "watchlist")
+
+        page._load.assert_not_called()  # never inline
+        self.assertEqual(len(timeouts), 1)
+        ms, cb = timeouts[0]
+        self.assertEqual(ms, 70)
+        self.assertIs(cb, page._load)
+
+
 if __name__ == "__main__":
     unittest.main()

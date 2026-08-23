@@ -17,10 +17,12 @@ TITLE_MAX_CHARS = 18
 
 
 def card_poster_url(url: str | None) -> str | None:
-    """Downsize a TMDB poster URL for card display (160x240).
+    """Normalize a TMDB poster URL to the one canonical size (w500).
 
-    Cards only render at w185 resolution, so fetching w500 wastes bandwidth
-    and disk. Non-TMDB URLs (and None) pass through unchanged.
+    Every surface — grid cards and the detail page — uses this same
+    variant, so each poster is downloaded once and cached as a single
+    file. Decode stays target-aware (grids render their small texture
+    from it, detail its large one). Non-TMDB URLs pass through.
     """
     if not url:
         return None
@@ -28,7 +30,7 @@ def card_poster_url(url: str | None) -> str | None:
         parts = url.split("/t/p/", 1)
         size_and_path = parts[1].split("/", 1)
         if len(size_and_path) == 2:
-            return f"{parts[0]}/t/p/w185/{size_and_path[1]}"
+            return f"{parts[0]}/t/p/w500/{size_and_path[1]}"
     return url
 
 
@@ -61,10 +63,12 @@ def media_type_label(item):
     return f"TV Show - {start}"
 
 
-def make_media_card(item, main_page=None, footer=None, watched=False):
+def make_media_card(item, main_page=None, footer=None, watched=False,
+                    subtitle=None):
     """Build a poster card matching the watchlist design.
     If footer is provided, it is appended inside the clickable button area.
-    If watched is True, a green check badge is overlaid on the poster corner."""
+    If watched is True, a green check badge is overlaid on the poster corner.
+    If subtitle is set, it replaces the default media-type caption."""
     button = Gtk.Button()
     button.add_css_class("flat")
     button.add_css_class("movie-card-button")
@@ -98,20 +102,7 @@ def make_media_card(item, main_page=None, footer=None, watched=False):
     frame.set_child(picture)
 
     if watched:
-        overlay = Gtk.Overlay()
-        overlay.set_child(frame)
-        badge = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        badge.add_css_class("poster-badge")
-        badge.add_css_class("watched-badge")
-        badge_image = Gtk.Image.new_from_icon_name("object-select-symbolic")
-        badge_image.set_pixel_size(14)
-        badge.append(badge_image)
-        badge.set_halign(Gtk.Align.END)
-        badge.set_valign(Gtk.Align.START)
-        badge.set_margin_top(6)
-        badge.set_margin_end(6)
-        overlay.add_overlay(badge)
-        card.append(overlay)
+        add_watched_badge(card, frame=frame)
     else:
         card.append(frame)
 
@@ -135,7 +126,7 @@ def make_media_card(item, main_page=None, footer=None, watched=False):
         year.set_xalign(0)
         info.append(year)
 
-    mtype = Gtk.Label(label=media_type_label(item))
+    mtype = Gtk.Label(label=subtitle or media_type_label(item))
     mtype.add_css_class("caption")
     mtype.add_css_class("dim-label")
     mtype.set_xalign(0)
@@ -155,9 +146,71 @@ def make_media_card(item, main_page=None, footer=None, watched=False):
         card.append(footer_box)
     button.set_child(card)
 
+    button._media_item = item
     button._paintable = paintable
     button._picture = picture
     picture._fixed_paintable = paintable
     load_poster(card_poster_url(item.poster_url), picture)
 
     return button
+
+
+def add_watched_badge(card, frame=None):
+    """Retrofit the round green watched badge onto an already-built card.
+    Idempotent: no-op when the badge is present. Returns the card."""
+    if _find_watched_badge(card):
+        return card
+    target = frame or _find_poster_frame(card)
+    if target is None:
+        return card
+    parent = target.get_parent()
+    had_parent = parent is not None
+    if had_parent:
+        parent.remove(target)
+
+    overlay = Gtk.Overlay()
+    overlay.set_child(target)
+    badge = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    badge.add_css_class("poster-badge")
+    badge.add_css_class("watched-badge")
+    badge_image = Gtk.Image.new_from_icon_name("object-select-symbolic")
+    badge_image.set_pixel_size(14)
+    badge.append(badge_image)
+    badge.set_halign(Gtk.Align.END)
+    badge.set_valign(Gtk.Align.START)
+    # Inset lives in .watched-badge CSS so every poster surface shares
+    # one identical offset.
+    overlay.add_overlay(badge)
+    fade_in(badge, 250)
+
+    if isinstance(parent, Gtk.Box):
+        parent.prepend(overlay)   # poster always sits first
+    elif had_parent:
+        parent.set_child(overlay)
+    else:
+        card.append(overlay)
+    return card
+
+
+def _find_watched_badge(widget):
+    if isinstance(widget, Gtk.Box) and "watched-badge" in widget.get_css_classes():
+        return widget
+    child = widget.get_first_child()
+    while child:
+        found = _find_watched_badge(child)
+        if found is not None:
+            return found
+        child = child.get_next_sibling()
+    return None
+
+
+def _find_poster_frame(widget):
+    if "movie-poster-frame" in widget.get_css_classes():
+        return widget
+    child = widget.get_first_child()
+    while child:
+        found = _find_poster_frame(child)
+        if found is not None:
+            return found
+        child = child.get_next_sibling()
+    return None
