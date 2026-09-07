@@ -11,9 +11,14 @@ from src.domain.models import Movie
 from src.ui.detail_page import DetailPage
 
 
+class _StubRepo:
+    def get_watched_at(self, tmdb_id, media_type, *args, **kwargs):
+        return None
+
+
 def make_page():
     item = Movie(tmdb_id=42, title="Test Movie")
-    page = DetailPage(object(), object(), object(), "movie", item)
+    page = DetailPage(object(), _StubRepo(), object(), "movie", item)
     return page
 
 

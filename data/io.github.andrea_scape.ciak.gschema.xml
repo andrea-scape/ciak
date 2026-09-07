@@ -50,6 +50,21 @@
       <default>false</default>
       <summary>Hide movies and shows that have not premiered yet from the watchlist</summary>
     </key>
+    <key name="hide-shows-no-upcoming-episodes" type="b">
+      <default>false</default>
+      <summary>Hide TV Shows with No Upcoming Episodes</summary>
+      <description>Hide TV shows you've caught up on when no new episode is scheduled within the next few days.</description>
+    </key>
+    <key name="hide-shows-upcoming-window" type="i">
+      <default>14</default>
+      <summary>Upcoming Episode Window (Days)</summary>
+      <description>Number of days to look ahead for upcoming episodes. Only used when "Hide TV Shows with No Upcoming Episodes" is enabled.</description>
+    </key>
+    <key name="diary-view-mode" type="s">
+      <default>"posters"</default>
+      <summary>Diary entry style</summary>
+      <description>Whether diary days show poster rows or a compact list</description>
+    </key>
     <key name="show-stats" type="b">
       <default>true</default>
       <summary>Show the stats section on the watchlist page</summary>
@@ -113,6 +128,61 @@
       <default>false</default>
       <summary>Swap Movies and TV Shows sections</summary>
       <description>List TV Shows before Movies on the watchlist, search and history pages. Applies after automatic restart.</description>
+    </key>
+    <key name="american-date-format" type="b">
+      <default>false</default>
+      <summary>American date format</summary>
+      <description>Show the month before the day (Aug 12 instead of 12 Aug).</description>
+    </key>
+    <key name="airing-notifications" type="b">
+      <default>false</default>
+      <summary>Airing notifications</summary>
+      <description>Send a desktop notification when media on the watchlist airs or releases.</description>
+    </key>
+    <key name="notification-scope" type="s">
+      <default>'all'</default>
+      <summary>Notification scope</summary>
+      <description>'all' notifies the whole watchlist except muted media; 'selected' notifies only media picked on their detail page.</description>
+    </key>
+    <key name="notifications-last-check" type="x">
+      <default>0</default>
+      <summary>Last notification check</summary>
+      <description>Unix timestamp of the last completed airing check; 0 means never.</description>
+    </key>
+    <key name="sync-enabled" type="b">
+      <default>false</default>
+      <summary>Enable cloud sync</summary>
+      <description>Master switch for cloud synchronization.</description>
+    </key>
+    <key name="sync-auto" type="b">
+      <default>true</default>
+      <summary>Automatic sync</summary>
+      <description>Sync in the background on a schedule. When off, manual syncing via "Sync Now" still works.</description>
+    </key>
+    <key name="sync-tmdb-enabled" type="b">
+      <default>false</default>
+      <summary>Sync with TMDB</summary>
+      <description>Sync watchlist and ratings with TMDB.</description>
+    </key>
+    <key name="sync-simkl-enabled" type="b">
+      <default>false</default>
+      <summary>Sync with Simkl</summary>
+      <description>Sync watchlist, watched, ratings, and collection with Simkl.</description>
+    </key>
+    <key name="sync-letterboxd-enabled" type="b">
+      <default>false</default>
+      <summary>Sync with Letterboxd (experimental)</summary>
+      <description>Sync watchlist and ratings with Letterboxd. May break without notice.</description>
+    </key>
+    <key name="sync-last-sync" type="x">
+      <default>0</default>
+      <summary>Last sync timestamp</summary>
+      <description>Unix timestamp of the last completed cloud sync; 0 means never.</description>
+    </key>
+    <key name="sync-interval-minutes" type="i">
+      <default>15</default>
+      <summary>Auto-sync interval in minutes</summary>
+      <description>How often to sync with enabled backends, in minutes.</description>
     </key>
   </schema>
 </schemalist>

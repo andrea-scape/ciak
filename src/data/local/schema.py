@@ -7,7 +7,7 @@ WAL journal mode is enabled for concurrent read performance.
 
 import logging
 
-DB_VERSION = 3
+DB_VERSION = 12
 PRAGMAS = [
     "PRAGMA journal_mode=WAL",
     "PRAGMA foreign_keys=ON",
@@ -170,6 +170,31 @@ _WATCHED_VERDICTS = _table(
     """
 )
 
+# Per-media notification overrides. Semantics depend on the
+# notification-scope setting: in 'all' mode rows are MUTED media
+# (watchlist minus this set), in 'selected' mode rows are the PICKED
+# media (this set intersect watchlist).
+_NOTIFY_SELECTION = _table(
+    """
+    CREATE TABLE IF NOT EXISTS notify_selection (
+        tmdb_id    INTEGER NOT NULL,
+        media_type TEXT    NOT NULL CHECK (media_type IN ('movie', 'show')),
+        PRIMARY KEY (tmdb_id, media_type)
+    )
+    """
+)
+
+# Already-fired notifications so each airing/release notifies at most
+# once. Key is "show:{id}:{season}:{episode}" or "movie:{id}".
+_NOTIFIED_AIRINGS = _table(
+    """
+    CREATE TABLE IF NOT EXISTS notified_airings (
+        key         TEXT    PRIMARY KEY,
+        notified_at INTEGER NOT NULL
+    )
+    """
+)
+
 
 def initialize(conn) -> None:
     """Create all tables and apply pending migrations."""
@@ -229,4 +254,105 @@ def _migrate(conn) -> None:
         conn.execute(
             "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
             (3, 1),
+        )
+    if current < 4:
+        # Diary view: optional per-watch-session note.
+        conn.execute("ALTER TABLE watched_items ADD COLUMN notes TEXT")
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (4, 1),
+        )
+    if current < 5:
+        # Season 0 (specials) is treated as nonexistent app-wide; drop any
+        # imported watched rows for specials so history/diary never see them.
+        conn.execute(
+            "DELETE FROM watched_items WHERE media_type = 'episode'"
+            " AND COALESCE(season_number, 0) <= 0"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (5, 1),
+        )
+    if current < 7:
+        # Extend sync_state for multi-backend: add backend column,
+        # rename trakt_id → remote_id, add unique index.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(sync_state)")}
+        if "backend" not in cols:
+            conn.execute(
+                "ALTER TABLE sync_state ADD COLUMN backend TEXT NOT NULL DEFAULT 'default'"
+            )
+        if "trakt_id" in cols and "remote_id" not in cols:
+            conn.execute("ALTER TABLE sync_state RENAME COLUMN trakt_id TO remote_id")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_state_item_backend "
+            "ON sync_state(item_key, backend)"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (7, 1),
+        )
+    if current < 8:
+        # Add pushed_at column to sync_state for tracking what was last
+        # pushed to each backend (enables deletion diff).
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(sync_state)")}
+        if "pushed_at" not in cols:
+            conn.execute(
+                "ALTER TABLE sync_state ADD COLUMN pushed_at INTEGER"
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (8, 1),
+        )
+    if current < 9:
+        # Track when a metadata backfill fetch was last attempted for an
+        # item, so items that can't be resolved (junk IDs, unreleased
+        # movies) aren't re-fetched on every sync.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(media_items)")}
+        if "poster_attempted_at" not in cols:
+            conn.execute(
+                "ALTER TABLE media_items ADD COLUMN poster_attempted_at INTEGER"
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (9, 1),
+        )
+    if current < 10:
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (10, 1),
+        )
+    if current < 11:
+        # Dismissed mapping decisions: items the user explicitly said don't
+        # exist on TMDB.  Permanently skipped until Simkl fixes the mapping.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dismissed_mappings (
+                sig        TEXT PRIMARY KEY,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (11, 1),
+        )
+    if current < 12:
+        # Track anime provenance: only push items that originated from
+        # Simkl's anime bucket back to that bucket, preventing the
+        # push-to-anime mirror cycle that causes phantom re-imports.
+        for tbl in ("watchlist_items", "watched_items", "ratings", "collection_items"):
+            cols = {row[1] for row in conn.execute(f"PRAGMA table_info({tbl})")}
+            if "is_anime" not in cols:
+                conn.execute(f"ALTER TABLE {tbl} ADD COLUMN is_anime INTEGER NOT NULL DEFAULT 0")
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (12, 1),
+        )
+    if current < 13:
+        # The "Keep on Simkl" concept is gone: no title may exist on Simkl
+        # that isn't also in Ciak.  Drop the orphaned suppression table.
+        conn.execute("DROP TABLE IF EXISTS deletion_suppressions")
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (13, 1),
         )

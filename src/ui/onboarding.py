@@ -12,8 +12,8 @@ from ..theme import apply_theme
 
 STEP_TITLES = {
     "welcome": "Welcome to Ciak",
-    "tmdb": "Your TMDB key",
     "appearance": "Make it yours",
+    "sync": "Stay in sync",
     "done": "You're ready",
 }
 
@@ -81,7 +81,7 @@ class OnboardingWindow(Adw.Window):
 
         self.skip_btn = Gtk.Button(label="Skip setup")
         self.skip_btn.add_css_class("flat")
-        self.skip_btn.add_css_class("dim-label")
+        self.skip_btn.add_css_class("dimmed")
         self.skip_btn.set_tooltip_text("Skip setup and open Ciak")
         self.skip_btn.connect("clicked", lambda _b: self._finish())
         bar.append(self.skip_btn)
@@ -104,8 +104,8 @@ class OnboardingWindow(Adw.Window):
         self._stack.set_vexpand(True)
 
         self._stack.add_named(self._page_welcome(), "welcome")
-        self._stack.add_named(self._page_tmdb(), "tmdb")
         self._stack.add_named(self._page_appearance(), "appearance")
+        self._stack.add_named(self._page_sync(), "sync")
         self._stack.add_named(self._page_done(), "done")
         return self._stack
 
@@ -153,8 +153,8 @@ class OnboardingWindow(Adw.Window):
         box.append(self._heading(STEP_TITLES["welcome"]))
         box.append(
             self._body(
-                "Ciak tracks the movies and shows you watch. Two quick steps: "
-                "add a TMDB key and pick a theme. You can change both later "
+                "Ciak tracks the movies and shows you watch. "
+                "Pick a theme to get started. You can change it later "
                 "in Preferences."
             )
         )
@@ -187,7 +187,7 @@ class OnboardingWindow(Adw.Window):
         action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         action_row.set_halign(Gtk.Align.CENTER)
 
-        self.spinner = Gtk.Spinner()
+        self.spinner = Adw.Spinner()
         self.spinner.set_visible(False)
         action_row.append(self.spinner)
 
@@ -205,7 +205,7 @@ class OnboardingWindow(Adw.Window):
 
         skip = Gtk.Button(label="Skip for now")
         skip.add_css_class("flat")
-        skip.add_css_class("dim-label")
+        skip.add_css_class("dimmed")
         skip.set_halign(Gtk.Align.CENTER)
         skip.connect("clicked", lambda _b: self._on_skip())
         box.append(skip)
@@ -254,6 +254,50 @@ class OnboardingWindow(Adw.Window):
         box.append(prefs)
         return clamp
 
+    def _page_sync(self):
+        box, clamp = self._page_shell()
+        box.append(self._heading(STEP_TITLES["sync"]))
+        box.append(
+            self._body(
+                "Connect your favorite services to keep your watchlist, "
+                "ratings, and history synced across all your devices.\n\n"
+                "You can set these up in Settings after onboarding."
+            )
+        )
+
+        prefs = Adw.PreferencesPage()
+        prefs.set_vexpand(False)
+
+        sync_group = Adw.PreferencesGroup()
+        sync_group.set_title("Cloud Sync")
+        prefs.add(sync_group)
+
+        tmdb_row = Adw.ActionRow()
+        tmdb_row.set_title("TMDB")
+        tmdb_row.set_subtitle("Watchlist + ratings")
+        sync_group.add(tmdb_row)
+
+        simkl_row = Adw.ActionRow()
+        simkl_row.set_title("Simkl")
+        simkl_row.set_subtitle("Full sync — watchlist, watched, ratings, collection")
+        sync_group.add(simkl_row)
+
+        lb_row = Adw.ActionRow()
+        lb_row.set_title("Letterboxd")
+        lb_row.set_subtitle("Experimental — watchlist + ratings")
+        sync_group.add(lb_row)
+
+        box.append(prefs)
+
+        skip = Gtk.Button(label="Skip for now")
+        skip.add_css_class("flat")
+        skip.add_css_class("dimmed")
+        skip.set_halign(Gtk.Align.CENTER)
+        skip.connect("clicked", lambda _b: self._go_forward())
+        box.append(skip)
+
+        return clamp
+
     def _page_done(self):
         box, clamp = self._page_shell()
         box.append(self._app_icon())
@@ -288,7 +332,6 @@ class OnboardingWindow(Adw.Window):
         self.test_btn.set_sensitive(False)
         self.next_btn.set_sensitive(False)
         self.spinner.set_visible(True)
-        self.spinner.start()
         threading.Thread(
             target=self._validate_worker, args=(key, advance_on_success), daemon=True
         ).start()
@@ -298,7 +341,6 @@ class OnboardingWindow(Adw.Window):
         GLib.idle_add(self._apply_validate_result, status, advance_on_success)
 
     def _apply_validate_result(self, status, advance_on_success):
-        self.spinner.stop()
         self.spinner.set_visible(False)
         self.test_btn.set_sensitive(True)
         self.next_btn.set_sensitive(True)
@@ -344,20 +386,11 @@ class OnboardingWindow(Adw.Window):
         if self.flow.step == "done":
             self._finish()
             return
-        if self.flow.step == "tmdb":
-            key = self.key_entry.get_text().strip()
-            self.flow.set_key(key)
-            if key and self.flow.tmdb_status is None:
-                self._start_validate(True)
-                return
-            if self.flow.tmdb_status == "invalid":
-                return
         self.flow.go_forward()
         self._sync_state()
 
     def _finish(self):
         self._finishing = True
-        self._persist_key()
         self.settings.set_boolean("onboarding-completed", True)
         apply_theme(self.settings)
         self._on_finish()

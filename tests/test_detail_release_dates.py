@@ -36,7 +36,7 @@ class MovieReleaseDateTest(unittest.TestCase):
         page.populate_hero(
             {"detail": movie, "watchlist_ids": set(), "watched_ids": set(), "rating": 0}
         )
-        self.assertIn("Dec 1, 2026", page.meta_label.get_text())
+        self.assertIn("1 Dec 2026", page.meta_label.get_text())
 
     def test_movie_meta_falls_back_to_year_without_date(self):
         page = make_page()
@@ -183,7 +183,7 @@ class EpisodeAiringLabelTest(unittest.TestCase):
         )
         page._populate_season_episodes(season, expander, state, [ep])
         row = state["ep_checks"][0][1].get_ancestor(Gtk.ListBoxRow)
-        self.assertIn("airing Dec 1, 2026", row.get_subtitle())
+        self.assertIn("airing 1 Dec 2026", row.get_subtitle())
 
     def test_aired_episode_row_keeps_title_only(self):
         page = make_page()

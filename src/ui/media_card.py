@@ -14,6 +14,7 @@ from .anim import fade_in
 POSTER_W = 160
 POSTER_H = 240
 TITLE_MAX_CHARS = 18
+PAGE_GUTTER_PX = 24
 
 
 def card_poster_url(url: str | None) -> str | None:
@@ -90,6 +91,9 @@ def make_media_card(item, main_page=None, footer=None, watched=False,
     frame.add_css_class("movie-poster-frame")
     frame.set_halign(Gtk.Align.CENTER)
     frame.set_valign(Gtk.Align.START)
+    # Explicit geometry: every poster surface — and anything anchored to
+    # it (the watched badge) — must be pixel-identical across cards.
+    frame.set_size_request(POSTER_W, POSTER_H)
 
     paintable = FixedPaintable(POSTER_W, POSTER_H)
     picture = Gtk.Picture()
@@ -122,13 +126,13 @@ def make_media_card(item, main_page=None, footer=None, watched=False,
     if item.year:
         year = Gtk.Label(label=str(item.year))
         year.add_css_class("caption")
-        year.add_css_class("dim-label")
+        year.add_css_class("dimmed")
         year.set_xalign(0)
         info.append(year)
 
     mtype = Gtk.Label(label=subtitle or media_type_label(item))
     mtype.add_css_class("caption")
-    mtype.add_css_class("dim-label")
+    mtype.add_css_class("dimmed")
     mtype.set_xalign(0)
     info.append(mtype)
 
@@ -170,6 +174,7 @@ def add_watched_badge(card, frame=None):
 
     overlay = Gtk.Overlay()
     overlay.set_child(target)
+    overlay.set_size_request(POSTER_W, POSTER_H)
     badge = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     badge.add_css_class("poster-badge")
     badge.add_css_class("watched-badge")
@@ -178,8 +183,10 @@ def add_watched_badge(card, frame=None):
     badge.append(badge_image)
     badge.set_halign(Gtk.Align.END)
     badge.set_valign(Gtk.Align.START)
-    # Inset lives in .watched-badge CSS so every poster surface shares
-    # one identical offset.
+    # Inset is set as widget margins so the offset cannot be lost to a
+    # stale or missing stylesheet (e.g. running from a stale build dir).
+    badge.set_margin_top(8)
+    badge.set_margin_end(8)
     overlay.add_overlay(badge)
     fade_in(badge, 250)
 

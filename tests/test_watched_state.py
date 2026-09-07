@@ -29,9 +29,10 @@ class _FakeMetadata:
     """episodes: list of (season, episode, iso_air_date);
     next_air: iso string or None"""
 
-    def __init__(self, episodes, next_air=None):
+    def __init__(self, episodes, next_air=None, status="Ended"):
         self._episodes = episodes
         self._next_air = next_air
+        self._status = status
 
     def get_show_seasons(self, tmdb_id):
         seasons = sorted({s for s, _e, _d in self._episodes})
@@ -47,7 +48,8 @@ class _FakeMetadata:
         ]
 
     def get_show(self, tmdb_id):
-        return SimpleNamespace(next_episode_air_date=self._next_air)
+        return SimpleNamespace(next_episode_air_date=self._next_air,
+                               status=self._status)
 
 
 def _iso(d):
@@ -311,8 +313,8 @@ class UndatedEpisodeTest(unittest.TestCase):
 
 
 class WholeShowMarkTest(unittest.TestCase):
-    """A wholesale 'mark show watched' means seen-everything: both checks
-    short-circuit to True without consulting metadata."""
+    """A wholesale 'mark show watched' row in the DB no longer
+    short-circuits the verdict.  Episode-level checks always run."""
 
     def _repo(self):
         class Repo:
@@ -326,20 +328,23 @@ class WholeShowMarkTest(unittest.TestCase):
 
         return Repo()
 
-    def test_whole_show_mark_is_caught_up_without_episodes(self):
+    def test_whole_show_mark_without_episodes_is_not_caught_up(self):
         class Meta:
             def get_show_seasons(self, tmdb_id):
-                raise AssertionError("metadata must not be needed")
+                return []
 
-        self.assertTrue(watched_state.is_show_caught_up(
+        self.assertFalse(watched_state.is_show_caught_up(
             self._repo(), Meta(), 42))
 
-    def test_whole_show_mark_counts_as_fully_watched(self):
+    def test_whole_show_mark_without_episodes_is_not_fully_watched(self):
         class Meta:
             def get_show_seasons(self, tmdb_id):
-                raise AssertionError("metadata must not be needed")
+                return []
 
-        self.assertTrue(watched_state.is_show_fully_watched(
+            def get_show(self, tmdb_id):
+                return SimpleNamespace(status="Ended")
+
+        self.assertFalse(watched_state.is_show_fully_watched(
             self._repo(), Meta(), 42))
 
 
@@ -364,6 +369,77 @@ class UnfilteredCandidatesTest(unittest.TestCase):
         meta = _FakeMetadata(eps)
         result = watched_state.caught_up_show_ids(Repo(), meta, {9})
         self.assertEqual(result, {9})
+
+
+class ReturningShowStatusTest(unittest.TestCase):
+    """Ongoing shows (status != ended/canceled) must never be 'fully
+    watched' — they stay in the watchlist even when all aired
+    episodes are marked."""
+
+    def setUp(self):
+        watched_state._fully_watched_memo.clear()
+        self.today = datetime.date.today()
+
+    def tearDown(self):
+        watched_state._fully_watched_memo.clear()
+
+    def test_ongoing_show_not_fully_watched(self):
+        eps = [(1, 1, _iso(self.today - datetime.timedelta(days=7)))]
+        meta = _FakeMetadata(eps, status="Returning Series")
+        self.assertFalse(watched_state.is_show_fully_watched(
+            _FakeRepo({(1, 1)}), meta, 10))
+
+    def test_ended_show_fully_watched(self):
+        eps = [(1, 1, _iso(self.today - datetime.timedelta(days=7)))]
+        meta = _FakeMetadata(eps, status="Ended")
+        self.assertTrue(watched_state.is_show_fully_watched(
+            _FakeRepo({(1, 1)}), meta, 10))
+
+    def test_unknown_status_not_fully_watched(self):
+        eps = [(1, 1, _iso(self.today - datetime.timedelta(days=7)))]
+        meta = _FakeMetadata(eps, status=None)
+        self.assertFalse(watched_state.is_show_fully_watched(
+            _FakeRepo({(1, 1)}), meta, 10))
+
+    def test_whole_show_mark_on_ongoing_not_fully_watched(self):
+        class Repo:
+            data_version = 1
+
+            def is_whole_show_watched(self, show_id):
+                return True
+
+            def get_watched_episodes_for_show(self, show_id):
+                return set()
+
+        class Meta:
+            def get_show_seasons(self, tmdb_id):
+                return []
+
+            def get_show(self, tmdb_id):
+                return SimpleNamespace(status="Returning Series")
+
+        self.assertFalse(watched_state.is_show_fully_watched(
+            Repo(), Meta(), 42))
+
+    def test_whole_show_mark_on_ended_still_needs_episodes(self):
+        class Repo:
+            data_version = 1
+
+            def is_whole_show_watched(self, show_id):
+                return True
+
+            def get_watched_episodes_for_show(self, show_id):
+                return set()
+
+        class Meta:
+            def get_show_seasons(self, tmdb_id):
+                return []
+
+            def get_show(self, tmdb_id):
+                return SimpleNamespace(status="Ended")
+
+        self.assertFalse(watched_state.is_show_fully_watched(
+            Repo(), Meta(), 42))
 
 
 if __name__ == "__main__":

@@ -755,6 +755,118 @@ class MatchResult:
     item: ImportItem
 
 
+def expand_show_watched(watched: list[dict],
+                        metadata_service) -> tuple[list[dict], list[dict]]:
+    """Expand show-level watched entries into individual episode rows.
+
+    Trakt's watched-shows.json may produce media_type="show" rows with
+    no episode detail.  The app tracks watched state at the episode
+    level, so we fetch aired episodes from TMDB and emit one row per
+    episode.  Items that already have episode detail pass through.
+
+    Returns (expanded, skipped): show-level rows whose metadata could
+    not be fetched are reported as skipped instead of passing through
+    as broken show rows.
+    """
+    result: list[dict] = []
+    skipped: list[dict] = []
+    for row in watched:
+        if row.get("media_type") != "show" or row.get("season_number") is not None:
+            result.append(row)
+            continue
+        tmdb_id = row["tmdb_id"]
+        try:
+            metadata_service.get_show(tmdb_id, refresh=True)
+            seasons = metadata_service.get_show_seasons(tmdb_id)
+        except Exception:
+            skipped.append(row)
+            continue
+        today = datetime.now(timezone.utc).date()
+        expanded = False
+        for season in seasons:
+            if season.season_number <= 0:
+                continue
+            try:
+                episodes = metadata_service.get_season_episodes(
+                    tmdb_id, season.season_number)
+            except Exception:
+                continue
+            for ep in episodes:
+                aired = False
+                if ep.air_date:
+                    try:
+                        aired = datetime.fromisoformat(
+                            ep.air_date).date() <= today
+                    except ValueError:
+                        pass
+                if not aired:
+                    continue
+                result.append({
+                    "tmdb_id": ep.tmdb_id,
+                    "media_type": "episode",
+                    "show_tmdb_id": tmdb_id,
+                    "season_number": ep.season_number,
+                    "episode_number": ep.episode_number,
+                    "title": ep.title,
+                    "year": row.get("year"),
+                    "imdb_id": row.get("imdb_id"),
+                    "watched_at": row.get("watched_at"),
+                    "is_anime": row.get("is_anime", 0),
+                })
+                expanded = True
+        if not expanded:
+            skipped.append(row)
+    return result, skipped
+
+
+def verify_metadata(rows: list[dict],
+                    metadata_service) -> tuple[list[dict], list[dict]]:
+    """Split rows into (valid, broken) by confirming each TMDB id exists.
+
+    Lookups are deduped by id: episode rows validate the parent show
+    once.  A row is broken when the lookup raises or returns no title.
+    Empty titles on valid rows are backfilled from TMDB.
+    """
+    groups: dict[tuple, list[dict]] = {}
+    for row in rows:
+        media_type = row.get("media_type") or "movie"
+        if media_type == "episode":
+            key = (row.get("show_tmdb_id"), "show")
+        else:
+            key = (row.get("tmdb_id"), media_type)
+        groups.setdefault(key, []).append(row)
+    resolved: dict[tuple, str] = {}
+    broken_keys: set[tuple] = set()
+    for (tmdb_id, kind), group in groups.items():
+        if not tmdb_id:
+            broken_keys.add((tmdb_id, kind))
+            continue
+        try:
+            if kind == "show":
+                meta = metadata_service.get_show(tmdb_id, refresh=True)
+            else:
+                meta = metadata_service.get_movie(tmdb_id, refresh=True)
+        except Exception:
+            broken_keys.add((tmdb_id, kind))
+            continue
+        title = (getattr(meta, "title", "") or "").strip()
+        if not title:
+            broken_keys.add((tmdb_id, kind))
+            continue
+        resolved[(tmdb_id, kind)] = title
+    valid: list[dict] = []
+    broken: list[dict] = []
+    for key, group in groups.items():
+        if key in broken_keys:
+            broken.extend(group)
+            continue
+        for row in group:
+            if not (row.get("title") or "").strip():
+                row["title"] = resolved[key]
+            valid.append(row)
+    return valid, broken
+
+
 def select_parser(path: str):
     """Pick the right parser class based on file extension and headers."""
     if path.lower().endswith(".zip") or os.path.isdir(path):

@@ -55,6 +55,7 @@ class HistoryPage(WatchlistPage):
         self._empty_label = "No history found"
         self._search_placeholder = "History"
         super().__init__(win, user_repo, metadata_service, main_page)
+        self._hide_caught_up = False
 
     def _get_items(self, mode):
         if mode in ("all", "movies"):

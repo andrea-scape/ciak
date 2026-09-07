@@ -16,12 +16,12 @@ class OnboardingFlowTest(unittest.TestCase):
         self.assertEqual(OnboardingFlow().step, "welcome")
 
     def test_steps_in_order(self):
-        self.assertEqual(STEPS, ("welcome", "tmdb", "appearance", "done"))
+        self.assertEqual(STEPS, ("welcome", "appearance", "sync", "done"))
 
     def test_forward_and_back(self):
         flow = OnboardingFlow()
         flow.go_forward()
-        self.assertEqual(flow.step, "tmdb")
+        self.assertEqual(flow.step, "appearance")
         flow.go_back()
         self.assertEqual(flow.step, "welcome")
 
@@ -39,28 +39,11 @@ class OnboardingFlowTest(unittest.TestCase):
         flow.go_forward()
         self.assertEqual(flow.step, "done")
 
-    def test_tmdb_step_allows_forward_without_key(self):
+    def test_full_journey(self):
         flow = OnboardingFlow()
         flow.go_forward()
-        self.assertEqual(flow.step, "tmdb")
-        self.assertTrue(flow.can_go_forward())
-
-    def test_tmdb_step_blocks_forward_when_invalid(self):
-        flow = OnboardingFlow()
+        self.assertEqual(flow.step, "appearance")
         flow.go_forward()
-        flow.set_status("invalid")
-        self.assertFalse(flow.can_go_forward())
-
-    def test_tmdb_step_allows_forward_after_skip(self):
-        flow = OnboardingFlow()
+        self.assertEqual(flow.step, "sync")
         flow.go_forward()
-        flow.set_status("invalid")
-        flow.skip_tmdb()
-        self.assertTrue(flow.can_go_forward())
-
-    def test_unreachable_does_not_block(self):
-        flow = OnboardingFlow()
-        flow.go_forward()
-        flow.set_status("unreachable")
-        self.assertTrue(flow.can_go_forward())
-
+        self.assertEqual(flow.step, "done")

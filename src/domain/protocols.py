@@ -76,7 +76,7 @@ class UserMediaRepository(Protocol):
         """Return all rated items, optionally filtered by media_type."""
         ...
 
-    def add_to_collection(self, tmdb_id: int, media_type: str) -> None:
+    def add_to_collection(self, tmdb_id: int, media_type: str, *, is_anime: int = 0) -> None:
         """Add an item to the user's collection."""
         ...
 

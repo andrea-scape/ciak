@@ -97,7 +97,7 @@ class PersistedVerdictTest(unittest.TestCase):
         eps = [(1, 1, _iso(today - datetime.timedelta(days=7)))]
         self.assertTrue(watched_state.is_show_caught_up(repo, _FakeMeta(eps), 5))
         self.assertIn(
-            "n1", [fp for (_s, _k, fp) in repo._verdicts],
+            "v2n1", [fp for (_s, _k, fp) in repo._verdicts],
             "first verdict should persist under the initial fingerprint")
 
         # User watches another episode: watched count changes (fingerprint)
@@ -108,7 +108,7 @@ class PersistedVerdictTest(unittest.TestCase):
         eps2 = eps + [(1, 2, _iso(today - datetime.timedelta(days=6)))]
         self.assertTrue(watched_state.is_show_caught_up(repo, _FakeMeta(eps2), 5))
         self.assertIn(
-            "n2", [fp for (_s, _k, fp) in repo._verdicts],
+            "v2n2", [fp for (_s, _k, fp) in repo._verdicts],
             "mutated state must recompute and store a new fingerprint")
         watched_state._caught_up_memo.clear()
 

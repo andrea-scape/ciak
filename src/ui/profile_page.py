@@ -133,7 +133,7 @@ class ProfileGallery(ProfileBase):
         count_row.append(tick)
         count = Gtk.Label(label=f"{group['count']} watched")
         count.add_css_class("caption")
-        count.add_css_class("dim-label")
+        count.add_css_class("dimmed")
         count_row.append(count)
         text_box.append(count_row)
         box.append(text_box)
@@ -163,7 +163,7 @@ class ProfileGallery(ProfileBase):
             return thumb_pic
         icon = Gtk.Image.new_from_icon_name("folder-symbolic")
         icon.set_pixel_size(30)
-        icon.add_css_class("dim-label")
+        icon.add_css_class("dimmed")
         if center:
             icon.set_valign(Gtk.Align.CENTER)
         parent.append(icon)

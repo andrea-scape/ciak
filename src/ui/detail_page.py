@@ -8,8 +8,12 @@ import sqlite3
 from ..domain.models import Movie, Show
 from ..domain.exceptions import NetworkError
 from .poster import create_poster, create_avatar, load_poster, load_avatar, POSTER_SLOTS
+from .media_card import PAGE_GUTTER_PX
 from .. import threads as _pool
 from .painting import FixedPaintable, _load_texture_sync
+from . import datefmt
+
+_ENDED_STATUSES = {"ended", "canceled", "cancelled"}
 
 _OFFERING_LABELS = {
     "flatrate": "Stream",
@@ -54,16 +58,16 @@ class DetailPage(Gtk.Box):
 
         top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=32)
         top_box.set_hexpand(True)
-        top_box.set_margin_start(16)
-        top_box.set_margin_end(16)
+        top_box.set_margin_start(PAGE_GUTTER_PX)
+        top_box.set_margin_end(PAGE_GUTTER_PX)
         top_box.set_margin_top(16)
         top_box.set_margin_bottom(16)
         self.top_box = top_box
         content_box.append(top_box)
 
         self.progress_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.progress_box.set_margin_start(16)
-        self.progress_box.set_margin_end(16)
+        self.progress_box.set_margin_start(PAGE_GUTTER_PX)
+        self.progress_box.set_margin_end(PAGE_GUTTER_PX)
         self.progress_box.set_margin_top(8)
         self.progress_box.set_visible(False)
         content_box.append(self.progress_box)
@@ -99,7 +103,7 @@ class DetailPage(Gtk.Box):
         info_box.append(self.meta_label)
 
         self.status_label = Gtk.Label()
-        self.status_label.add_css_class("dim-label")
+        self.status_label.add_css_class("dimmed")
         self.status_label.set_halign(Gtk.Align.START)
         self.status_label.set_xalign(0)
         info_box.append(self.status_label)
@@ -132,13 +136,24 @@ class DetailPage(Gtk.Box):
         self.watched_btn = Gtk.Button()
         self.watched_btn.add_css_class("pill")
         self.watched_btn.add_css_class("hero-btn")
-        w_box = Gtk.Box(spacing=6)
-        w_box.set_halign(Gtk.Align.CENTER)
+        # Vertical: [icon + label] row with an optional watch-date second
+        # line, so the date always sits under the Watched button at every
+        # window size (the pill wraps as a unit).
+        w_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        w_row = Gtk.Box(spacing=6)
+        w_row.set_halign(Gtk.Align.CENTER)
         self.watched_icon = Gtk.Image(icon_name="object-select-symbolic")
-        w_box.append(self.watched_icon)
+        w_row.append(self.watched_icon)
         # TV-aware label is applied later by _set_watched_ui.
         self.watched_label = Gtk.Label(label="Mark Watched")
-        w_box.append(self.watched_label)
+        w_row.append(self.watched_label)
+        w_box.append(w_row)
+        self._watched_sub_lbl = Gtk.Label()
+        self._watched_sub_lbl.add_css_class("caption")
+        self._watched_sub_lbl.add_css_class("dimmed")
+        self._watched_sub_lbl.set_halign(Gtk.Align.CENTER)
+        self._watched_sub_lbl.set_visible(False)
+        w_box.append(self._watched_sub_lbl)
         self.watched_btn.set_child(w_box)
         self.watched_btn.set_tooltip_text("Watched")
         self.watched_btn.connect("clicked", self._toggle_watched)
@@ -173,9 +188,24 @@ class DetailPage(Gtk.Box):
         size_group.add_widget(self.trailer_btn)
         self.action_box.append(self.trailer_btn)
 
-        self._trailer_title = ""
-        self._trailer_year = None
-
+        # Airing-notification bell. Hidden unless notifications are on
+        # AND the media is in the watchlist; toggling mutes ('all'
+        # scope) or opts in ('selected' scope) this media.
+        self.notify_btn = Gtk.Button()
+        self.notify_btn.add_css_class("pill")
+        self.notify_btn.add_css_class("hero-btn")
+        n_box = Gtk.Box(spacing=6)
+        n_box.set_halign(Gtk.Align.CENTER)
+        self.notify_icon = Gtk.Image(icon_name="alarm-symbolic")
+        n_box.append(self.notify_icon)
+        self.notify_label = Gtk.Label(label="Notify me")
+        n_box.append(self.notify_label)
+        self.notify_btn.set_child(n_box)
+        self.notify_btn.set_tooltip_text("Airing notifications")
+        self.notify_btn.connect("clicked", self._toggle_notify)
+        size_group.add_widget(self.notify_btn)
+        self.action_box.append(self.notify_btn)
+        self.notify_btn.set_visible(False)
 
         self._trailer_title = ""
         self._trailer_year = None
@@ -200,8 +230,8 @@ class DetailPage(Gtk.Box):
         info_box.append(self.overview_label)
 
         self.episodes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.episodes_box.set_margin_start(16)
-        self.episodes_box.set_margin_end(16)
+        self.episodes_box.set_margin_start(PAGE_GUTTER_PX)
+        self.episodes_box.set_margin_end(PAGE_GUTTER_PX)
         self.episodes_box.set_margin_top(8)
         content_box.append(self.episodes_box)
 
@@ -211,8 +241,8 @@ class DetailPage(Gtk.Box):
         content_box.append(separator)
 
         self.related_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.related_section.set_margin_start(16)
-        self.related_section.set_margin_end(16)
+        self.related_section.set_margin_start(PAGE_GUTTER_PX)
+        self.related_section.set_margin_end(PAGE_GUTTER_PX)
         self.related_section.set_margin_top(12)
         self.related_section.set_margin_bottom(16)
         self.related_section.set_visible(False)
@@ -230,8 +260,8 @@ class DetailPage(Gtk.Box):
         self.related_section.append(self.related_box)
 
         self.cast_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.cast_section.set_margin_start(16)
-        self.cast_section.set_margin_end(16)
+        self.cast_section.set_margin_start(PAGE_GUTTER_PX)
+        self.cast_section.set_margin_end(PAGE_GUTTER_PX)
         self.cast_section.set_margin_top(28)
         self.cast_section.set_margin_bottom(16)
         self.cast_section.set_visible(False)
@@ -249,8 +279,8 @@ class DetailPage(Gtk.Box):
         self.cast_section.append(self.cast_box)
 
         self.streaming_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.streaming_section.set_margin_start(16)
-        self.streaming_section.set_margin_end(16)
+        self.streaming_section.set_margin_start(PAGE_GUTTER_PX)
+        self.streaming_section.set_margin_end(PAGE_GUTTER_PX)
         self.streaming_section.set_margin_top(28)
         self.streaming_section.set_margin_bottom(16)
         self.streaming_section.set_visible(False)
@@ -480,8 +510,8 @@ class DetailPage(Gtk.Box):
         inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
         inner.set_margin_top(12)
         inner.set_margin_bottom(12)
-        inner.set_margin_start(16)
-        inner.set_margin_end(16)
+        inner.set_margin_start(PAGE_GUTTER_PX)
+        inner.set_margin_end(PAGE_GUTTER_PX)
         inner.add_css_class("provider-groups")
         inner.set_hexpand(True)
         self.streaming_revealer.set_child(inner)
@@ -535,7 +565,7 @@ class DetailPage(Gtk.Box):
             self.tagline_label.set_visible(True)
 
         if movie.release_date:
-            year_str = self._format_date(movie.release_date) or (
+            year_str = self._fmt_date(movie.release_date) or (
                 str(movie.year) if movie.year else ""
             )
         else:
@@ -577,7 +607,7 @@ class DetailPage(Gtk.Box):
                 thumb_pic = None
                 chip_icon = Gtk.Image.new_from_icon_name("folder-symbolic")
                 chip_icon.set_pixel_size(30)
-                chip_icon.add_css_class("dim-label")
+                chip_icon.add_css_class("dimmed")
                 chip_icon.set_valign(Gtk.Align.CENTER)
                 chip_box.append(chip_icon)
             text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -590,7 +620,7 @@ class DetailPage(Gtk.Box):
             text_box.append(chip_name)
             chip_cap = Gtk.Label()
             chip_cap.add_css_class("caption")
-            chip_cap.add_css_class("dim-label")
+            chip_cap.add_css_class("dimmed")
             chip_cap.set_halign(Gtk.Align.START)
             chip_cap.set_visible(False)
             text_box.append(chip_cap)
@@ -705,6 +735,9 @@ class DetailPage(Gtk.Box):
         self._watched_episodes = self.user_repo.get_watched_episodes_for_show(
             self.item.tmdb_id
         )
+        self._watched_episode_dates = self.user_repo.get_watched_episode_dates(
+            self.item.tmdb_id
+        )
         self._watched_seasons = {
             s.season_number
             for s in seasons
@@ -784,7 +817,12 @@ class DetailPage(Gtk.Box):
             return
         season_episodes = getattr(self, "_season_episodes", {})
         if not season_episodes:
-            self._is_watched = False
+            # No season data fetched (fetch failed or not yet populated).
+            # Trust an explicit whole-show mark rather than forcing the
+            # check off — bulk "mark watched" wrote its rows to the DB.
+            self._is_watched = self.user_repo.is_whole_show_watched(
+                self.item.tmdb_id
+            )
             self._set_watched_ui()
             return
         aired_any = False
@@ -857,19 +895,15 @@ class DetailPage(Gtk.Box):
         except ValueError:
             return True
 
-    @staticmethod
-    def _format_date(iso: str) -> str:
-        try:
-            d = datetime.date.fromisoformat(iso)
-            return f"{d.strftime('%b')} {d.day}, {d.year}"
-        except (ValueError, TypeError):
-            return ""
+    def _fmt_date(self, iso: str) -> str:
+        return datefmt.format_iso(
+            iso, datefmt.is_american(getattr(self.win, "settings", None))
+        )
 
-    @staticmethod
-    def _episode_subtitle(ep, aired) -> str:
+    def _episode_subtitle(self, ep, aired) -> str:
         if aired:
             return ep.title or ""
-        when = DetailPage._format_date(ep.air_date) if ep.air_date else ""
+        when = self._fmt_date(ep.air_date) if ep.air_date else ""
         if when:
             return f"{ep.title} \u00b7 airing {when}" if ep.title else f"airing {when}"
         return f"{ep.title} \u00b7 (not yet aired)" if ep.title else "(not yet aired)"
@@ -919,6 +953,8 @@ class DetailPage(Gtk.Box):
 
     def _populate_season_episodes(self, season, expander, state, episodes):
         ep_checks = state["ep_checks"]
+        ep_dates = getattr(self, "_watched_episode_dates", {})
+        amer = datefmt.is_american(getattr(self.win, "settings", None))
         for ep in episodes:
             aired = self._is_aired(ep)
             ep_row = Adw.ActionRow(
@@ -935,10 +971,23 @@ class DetailPage(Gtk.Box):
                 check.set_sensitive(False)
                 check.set_tooltip_text("Episode has not aired yet")
             check.connect("toggled", self._on_episode_toggled, ep)
+            ts = (
+                ep_dates.get((ep.season_number, ep.episode_number))
+                if aired
+                else None
+            )
+            if ts:
+                date_lbl = Gtk.Label(label=datefmt.format_epoch(ts, amer))
+                date_lbl.add_css_class("caption")
+                date_lbl.add_css_class("dimmed")
+                date_lbl.set_valign(Gtk.Align.CENTER)
+                date_lbl.set_margin_end(6)
+                ep_row.add_suffix(date_lbl)
+                check._watched_date_lbl = date_lbl
             ep_row.add_suffix(check)
             ep_row.set_activatable_widget(check)
             if not aired:
-                ep_row.add_css_class("dim-label")
+                ep_row.add_css_class("dimmed")
             expander.add_row(ep_row)
             ep_checks.append((ep, check))
         self._sync_season_check(season.season_number)
@@ -1015,6 +1064,11 @@ class DetailPage(Gtk.Box):
             check.set_active(not wanted)
             check.handler_unblock_by_func(self._on_season_toggled)
         else:
+            self._watched_episode_dates = self.user_repo.get_watched_episode_dates(
+                self.item.tmdb_id
+            )
+            for ep, ep_check in ep_checks:
+                self._update_ep_date_label(ep_check, ep)
             self._sync_season_check(season_number)
             self._recompute_is_watched()
             self._invalidate_library_pages()
@@ -1059,6 +1113,14 @@ class DetailPage(Gtk.Box):
             check.set_active(not check.get_active())
             check.handler_unblock_by_func(self._on_episode_toggled)
         else:
+            key = (ep.season_number, ep.episode_number)
+            dates = getattr(self, "_watched_episode_dates", None)
+            if dates is not None:
+                if check.get_active():
+                    dates[key] = int(datetime.datetime.now().timestamp())
+                else:
+                    dates.pop(key, None)
+            self._update_ep_date_label(check, ep)
             self._sync_season_check(ep.season_number)
             self._recompute_is_watched()
             self._invalidate_library_pages()
@@ -1130,7 +1192,7 @@ class DetailPage(Gtk.Box):
             if item.year:
                 year_label = Gtk.Label(label=str(item.year))
                 year_label.add_css_class("caption")
-                year_label.add_css_class("dim-label")
+                year_label.add_css_class("dimmed")
                 year_label.set_xalign(0)
                 info.append(year_label)
 
@@ -1138,7 +1200,7 @@ class DetailPage(Gtk.Box):
                 label="TV Show" if mt == "show" else "Movie"
             )
             type_label.add_css_class("caption")
-            type_label.add_css_class("dim-label")
+            type_label.add_css_class("dimmed")
             type_label.set_xalign(0)
             info.append(type_label)
 
@@ -1213,7 +1275,7 @@ class DetailPage(Gtk.Box):
                 char_label.set_xalign(0)
                 char_label.set_valign(Gtk.Align.START)
                 char_label.add_css_class("caption")
-                char_label.add_css_class("dim-label")
+                char_label.add_css_class("dimmed")
                 info.append(char_label)
 
             card.append(info)
@@ -1228,6 +1290,104 @@ class DetailPage(Gtk.Box):
     def cancel(self):
         self._cancelled = True
 
+    # ---- Per-action sync confirmation dialog ----
+
+    def _has_connected_sync_backend(self) -> bool:
+        """Return True if any sync backend is enabled and authenticated."""
+        try:
+            app = self.win.get_application()
+        except (AttributeError, TypeError):
+            return False
+        engine = getattr(app, '_sync_engine', None) if app else None
+        if engine is None:
+            return False
+        for backend in engine._backends:
+            key = f"sync-{backend.name}-enabled"
+            if engine._settings.get_boolean(key) and backend.is_authenticated():
+                return True
+        return False
+
+    def _trigger_sync(self):
+        """Trigger a background sync (pushes local changes to cloud)."""
+        try:
+            app = self.win.get_application()
+        except (AttributeError, TypeError):
+            return
+        engine = getattr(app, '_sync_engine', None) if app else None
+        if engine is not None:
+            engine.skip_push_deletions = True  # action-triggered sync never pushes deletions
+            engine.sync_now()
+
+    _SYNC_DIALOG_CONFIG = {
+        "add_watchlist": {
+            "title": "Add to Watchlist",
+            "body": 'Add \u201c{title}\u201d to your watchlist?\nAlso add to {svc}?',
+            "confirm_label": "Add to {svc}",
+        },
+        "remove_watchlist": {
+            "title": "Remove from Watchlist",
+            "body": ('Remove \u201c{title}\u201d from your watchlist?\n'
+                     'Also remove from {svc}? (This clears history and ratings)'),
+            "confirm_label": "Remove from {svc}",
+        },
+        "mark_watched": {
+            "title": "Mark as Watched",
+            "body": 'Mark \u201c{title}\u201d as watched?\nAlso mark on {svc}?',
+            "confirm_label": "Mark on {svc}",
+        },
+        "unmark_watched": {
+            "title": "Unmark as Watched",
+            "body": 'Unmark \u201c{title}\u201d as watched?\nAlso unmark on {svc}?',
+            "confirm_label": "Unmark on {svc}",
+        },
+    }
+
+    def _show_action_sync_dialog(self, action_type: str, callback):
+        """Show a three-button sync confirmation dialog.
+
+        callback receives one of: "cancel", "local", "sync".
+        Skips dialog entirely if no sync backend is connected.
+        """
+        if not self._has_connected_sync_backend():
+            callback("local")
+            return
+
+        app = self.win.get_application()
+        engine = getattr(app, '_sync_engine', None)
+        backend_names = {"simkl": "Simkl", "tmdb": "TMDB", "letterboxd": "Letterboxd"}
+        svc = "Simkl"
+        if engine is not None:
+            for b in engine._backends:
+                key = f"sync-{b.name}-enabled"
+                if engine._settings.get_boolean(key) and b.is_authenticated():
+                    svc = backend_names.get(b.name, b.name)
+                    break
+
+        cfg = self._SYNC_DIALOG_CONFIG[action_type]
+        title_text = self.item.title or "this item"
+        dialog = Adw.AlertDialog.new(
+            cfg["title"],
+            cfg["body"].format(title=title_text, svc=svc),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("local", "Local only")
+        dialog.add_response("sync", cfg["confirm_label"].format(svc=svc))
+        dialog.set_response_appearance("sync", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_appearance("cancel", Adw.ResponseAppearance.DEFAULT)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d, response):
+            if response == "sync":
+                callback("sync")
+            elif response == "local":
+                callback("local")
+            else:
+                callback("cancel")
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.win)
+
     def _set_watchlist_ui(self):
         if self._in_watchlist:
             self.watchlist_label.set_text("Remove from Watchlist")
@@ -1237,14 +1397,25 @@ class DetailPage(Gtk.Box):
             self.watchlist_label.set_text("Add to Watchlist")
             self.watchlist_icon.set_from_icon_name("view-grid-symbolic")
             self.watchlist_btn.remove_css_class("watchlist-active")
+        # Bell eligibility tracks watchlist membership live.
+        self._refresh_notify_ui()
 
     def _toggle_watchlist(self, btn):
         btn.set_sensitive(False)
-        GLib.Thread.new("watchlist-toggle", self._do_toggle_watchlist, btn)
+        action = "remove_watchlist" if self._in_watchlist else "add_watchlist"
+        def _on_dialog(response):
+            if response == "cancel":
+                btn.set_sensitive(True)
+                return
+            GLib.Thread.new(
+                "watchlist-toggle", self._do_toggle_watchlist, btn,
+                response == "sync")
+        self._show_action_sync_dialog(action, _on_dialog)
 
-    def _do_toggle_watchlist(self, btn):
+    def _do_toggle_watchlist(self, btn, sync_to_cloud=False):
         try:
-            if self._in_watchlist:
+            removing = self._in_watchlist
+            if removing:
                 self.user_repo.remove_from_watchlist(self.item.tmdb_id, self.media_type)
             else:
                 self.user_repo.add_to_watchlist(self.item.tmdb_id, self.media_type)
@@ -1252,8 +1423,37 @@ class DetailPage(Gtk.Box):
                     self._do_unmark_watched()
                     self._is_watched = False
             GLib.idle_add(self._watchlist_done, btn)
+            if removing:
+                GLib.idle_add(self._post_watchlist_undo_toast)
+            if sync_to_cloud:
+                self._trigger_sync()
         except sqlite3.Error:
             GLib.idle_add(btn.set_sensitive, True)
+
+    def _post_watchlist_undo_toast(self):
+        tmdb_id = self.item.tmdb_id
+        media_type = self.media_type
+        title = self.item.title or "this item"
+        if len(title) > 40:
+            title = title[:39] + "\u2026"
+        toast = Adw.Toast.new(f'"{title}" removed from watchlist')
+        toast.set_button_label("Undo")
+        toast.set_timeout(8)
+        toast.connect(
+            "button-clicked",
+            lambda _t: self._undo_watchlist_removal(tmdb_id, media_type),
+        )
+        self.win._toast_overlay.add_toast(toast)
+
+    def _undo_watchlist_removal(self, tmdb_id, media_type):
+        try:
+            self.user_repo.add_to_watchlist(tmdb_id, media_type)
+            self._in_watchlist = True
+            self._set_watchlist_ui()
+            if self.main_page is not None:
+                self.main_page.invalidate_page("watchlist")
+        except sqlite3.Error:
+            pass
 
     def _watchlist_done(self, btn):
         self._in_watchlist = not self._in_watchlist
@@ -1264,6 +1464,7 @@ class DetailPage(Gtk.Box):
             # Adding an already-watched title unmarks it, so history must
             # be refreshed alongside watchlist/profile.
             self.main_page.invalidate_page("history")
+            self.main_page.invalidate_page("diary")
             self.main_page.invalidate_page("watchlist")
             self.main_page.invalidate_page("profile")
             self.main_page.invalidate_page("collection")
@@ -1275,12 +1476,113 @@ class DetailPage(Gtk.Box):
                     else "Mark Watched")
             self.watched_label.set_text(base)
             self.watched_btn.set_tooltip_text(base)
+            self.watched_btn.remove_css_class("watched-active")
         else:
             self.watched_label.set_text("Watched")
             self.watched_btn.set_tooltip_text("Watched")
             # Same check/green language as the poster chips.
             self.watched_icon.set_from_icon_name("object-select-symbolic")
             self.watched_btn.add_css_class("watched-active")
+        self._refresh_watched_date()
+
+    def _refresh_watched_date(self):
+        amer = datefmt.is_american(getattr(self.win, "settings", None))
+        ts = None
+        if self.media_type == "movie":
+            if self._is_watched:
+                ts = self.user_repo.get_watched_at(self.item.tmdb_id, "movie")
+        else:
+            if getattr(self, "_watched_episodes", None):
+                ts = self.user_repo.get_latest_watched_at_for_show(
+                    self.item.tmdb_id
+                )
+        if ts:
+            self._watched_sub_lbl.set_text(datefmt.format_epoch(ts, amer))
+        self._watched_sub_lbl.set_visible(bool(ts))
+
+    # ------------------------------------------------------------------
+    # Airing-notification bell
+    # ------------------------------------------------------------------
+
+    def _notify_settings(self):
+        return getattr(self.win, "settings", None)
+
+    def _refresh_notify_ui(self):
+        """Show/enable the bell per: master switch on + media watched-listed.
+
+        Scope 'all': bell reads on unless muted (override row present).
+        Scope 'selected': bell reads off unless picked.
+        """
+        settings = self._notify_settings()
+        enabled = bool(settings and settings.get_boolean(
+            "airing-notifications"
+        ))
+        visible = enabled and getattr(self, "_in_watchlist", False)
+        self.notify_btn.set_visible(visible)
+        if not visible:
+            return
+        overrides = self.user_repo.get_notification_overrides()
+        picked = (self.item.tmdb_id, self.media_type) in overrides
+        if settings.get_string("notification-scope") == "all":
+            muted = picked
+            self.notify_icon.set_from_icon_name(
+                "notifications-disabled-symbolic" if muted
+                else "alarm-symbolic"
+            )
+            self.notify_label.set_text("Muted" if muted else "Notify me")
+            self.notify_btn.set_tooltip_text(
+                "Mute airing notifications for this title" if not muted
+                else "Unmute airing notifications for this title"
+            )
+        else:
+            self.notify_icon.set_from_icon_name("alarm-symbolic")
+            self.notify_label.set_text(
+                "Notifications on" if picked else "Notify me"
+            )
+            self.notify_btn.set_tooltip_text(
+                "Stop notifications for this title" if picked
+                else "Get notified when this airs"
+            )
+
+    def _toggle_notify(self, _btn):
+        # The override row means "muted" in 'all' scope and "picked" in
+        # 'selected' scope; either way clicking just toggles it.
+        overrides = self.user_repo.get_notification_overrides()
+        if (self.item.tmdb_id, self.media_type) in overrides:
+            self.user_repo.remove_notification_override(
+                self.item.tmdb_id, self.media_type
+            )
+        else:
+            self.user_repo.add_notification_override(
+                self.item.tmdb_id, self.media_type
+            )
+        self._refresh_notify_ui()
+
+    def _update_ep_date_label(self, check, ep):
+        date_lbl = getattr(check, "_watched_date_lbl", None)
+        if date_lbl is None:
+            return
+        ts = getattr(self, "_watched_episode_dates", {}).get(
+            (ep.season_number, ep.episode_number)
+        )
+        if ts:
+            amer = datefmt.is_american(getattr(self.win, "settings", None))
+            date_lbl.set_text(datefmt.format_epoch(ts, amer))
+            date_lbl.set_visible(True)
+        else:
+            date_lbl.set_visible(False)
+
+    def _refresh_ep_date_labels(self):
+        """Re-sync per-episode watch-date labels after a bulk change."""
+        self._watched_episode_dates = self.user_repo.get_watched_episode_dates(
+            self.item.tmdb_id
+        )
+        for expander in getattr(self, "_season_expanders", []):
+            state = getattr(expander, "_season_state", None)
+            if not state:
+                continue
+            for ep, ep_check in state.get("ep_checks", []):
+                self._update_ep_date_label(ep_check, ep)
 
     def _get_my_rating(self):
         try:
@@ -1307,8 +1609,16 @@ class DetailPage(Gtk.Box):
         btn.set_sensitive(False)
         marking = not self._is_watched
         if self.media_type != "show":
-            self._marking_watched = marking
-            GLib.Thread.new("toggle-watched", self._do_toggle_watched, btn)
+            action = "mark_watched" if marking else "unmark_watched"
+            def _on_dialog(response):
+                if response == "cancel":
+                    btn.set_sensitive(True)
+                    return
+                self._marking_watched = marking
+                GLib.Thread.new(
+                    "toggle-watched", self._do_toggle_watched, btn,
+                    response == "sync")
+            self._show_action_sync_dialog(action, _on_dialog)
             return
         if marking:
             GLib.Thread.new(
@@ -1368,15 +1678,25 @@ class DetailPage(Gtk.Box):
             return
         btn.set_sensitive(False)
         self._marking_watched = marking
-        GLib.Thread.new("toggle-watched", self._do_toggle_watched, btn)
+        action = "mark_watched" if marking else "unmark_watched"
+        def _on_sync_dialog(sync_response):
+            if sync_response == "cancel":
+                btn.set_sensitive(True)
+                return
+            GLib.Thread.new(
+                "toggle-watched", self._do_toggle_watched, btn,
+                sync_response == "sync")
+        self._show_action_sync_dialog(action, _on_sync_dialog)
 
-    def _do_toggle_watched(self, btn):
+    def _do_toggle_watched(self, btn, sync_to_cloud=False):
         try:
             if self._is_watched:
                 self._do_unmark_watched()
             else:
                 self._do_mark_watched()
             GLib.idle_add(self._watch_done, btn)
+            if sync_to_cloud:
+                self._trigger_sync()
         except sqlite3.Error:
             GLib.idle_add(self._update_action_sensitivity)
 
@@ -1423,6 +1743,8 @@ class DetailPage(Gtk.Box):
     def _mark_all_unwatched_show(self):
         """Unmark the show and every episode."""
         self.user_repo.mark_unwatched(self.item.tmdb_id, "show")
+        # Sweep any legacy specials rows too — S0 does not exist app-wide.
+        self.user_repo.purge_season_zero_watched(self.item.tmdb_id)
         seasons = self.metadata_service.get_show_seasons(self.item.tmdb_id)
         for season in seasons:
             episodes = self.metadata_service.get_season_episodes(
@@ -1442,6 +1764,7 @@ class DetailPage(Gtk.Box):
     def _invalidate_library_pages(self):
         if self.main_page is not None:
             self.main_page.invalidate_page("history")
+            self.main_page.invalidate_page("diary")
             self.main_page.invalidate_page("watchlist")
             self.main_page.invalidate_page("profile")
             self.main_page.invalidate_page("collection")
@@ -1451,6 +1774,7 @@ class DetailPage(Gtk.Box):
         self._set_watchlist_ui()
         self._update_action_sensitivity()
         if self.media_type == "show":
+            self._refresh_ep_date_labels()
             for expander in getattr(self, "_season_expanders", []):
                 state = getattr(expander, "_season_state", None)
                 if not state:
@@ -1521,6 +1845,7 @@ class DetailPage(Gtk.Box):
         self._set_watchlist_ui()
         self._set_watched_ui()
         if self.media_type == "show":
+            self._refresh_ep_date_labels()
             for expander in getattr(self, "_season_expanders", []):
                 state = getattr(expander, "_season_state", None)
                 if not state:
@@ -1548,6 +1873,11 @@ class DetailPage(Gtk.Box):
 
     def _show_error(self, msg):
         self.title_label.set_text(f"Error: {msg}")
+        return False
+
+    def _replace_error(self, error_row):
+        self.title_label.set_visible(False)
+        self.top_box.append(error_row)
         return False
 
 
@@ -1607,7 +1937,7 @@ class RatingDialog(Adw.Dialog):
         box.append(self.star_row)
 
         self.rating_label = Gtk.Label(label="No rating yet")
-        self.rating_label.add_css_class("dim-label")
+        self.rating_label.add_css_class("dimmed")
         self.rating_label.set_halign(Gtk.Align.CENTER)
         box.append(self.rating_label)
 

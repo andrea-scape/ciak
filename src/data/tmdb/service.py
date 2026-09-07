@@ -157,15 +157,21 @@ class TmdbMetadataService:
         return show
 
     def get_show_seasons(self, tmdb_id: int) -> list[Season]:
-        cached = self._cache.get_seasons(tmdb_id)
-        if cached is not None:
+        # Season 0 (specials) is treated as nonexistent app-wide; filter the
+        # cached path too, since old cache entries may still include it.
+        cached = [
+            s for s in (self._cache.get_seasons(tmdb_id) or []) if s.season_number > 0
+        ]
+        if cached:
             return cached
         try:
             raw = self._client.get_tv(tmdb_id)
         except (httpx.HTTPError, ValueError) as exc:
             raise NetworkError(f"Failed to fetch show seasons {tmdb_id}: {exc}") from exc
         seasons = [
-            self._raw_to_season(s, tmdb_id) for s in raw.get("seasons", [])
+            self._raw_to_season(s, tmdb_id)
+            for s in raw.get("seasons", [])
+            if s.get("season_number", 0) > 0
         ]
         self._cache.put_seasons(tmdb_id, seasons)
         return seasons
@@ -506,11 +512,25 @@ class TmdbMetadataService:
             genres=[g["name"] for g in raw.get("genres", [])],
             genre_ids=self._extract_genre_ids(raw),
             tagline=raw.get("tagline"),
-            next_episode_air_date=next_ep.get("air_date"),
-            next_episode_season=next_ep.get("season_number"),
-            next_episode_number=next_ep.get("episode_number"),
-            next_episode_name=next_ep.get("name"),
-            next_episode_still=self._client._image_url(next_ep.get("still_path"), "w300"),
+            **(
+                {
+                    "next_episode_air_date": next_ep.get("air_date"),
+                    "next_episode_season": next_ep.get("season_number"),
+                    "next_episode_number": next_ep.get("episode_number"),
+                    "next_episode_name": next_ep.get("name"),
+                    "next_episode_still": self._client._image_url(
+                        next_ep.get("still_path"), "w300"
+                    ),
+                }
+                if (next_ep.get("season_number") or 0) > 0
+                else {
+                    "next_episode_air_date": None,
+                    "next_episode_season": None,
+                    "next_episode_number": None,
+                    "next_episode_name": None,
+                    "next_episode_still": None,
+                }
+            ),
             creators=[
                 {
                     "id": c.get("id"),

@@ -16,6 +16,58 @@ _VERDICT_MAX_AGE_S = 6 * 3600
 
 _ENDED_STATUSES = {"ended", "canceled", "cancelled"}
 
+# Bump to invalidate all cached watched_verdicts rows when the
+# computation logic changes.  The fingerprint is "v{n}n{count}";
+# changing _LOGIC_VERSION makes every old row miss automatically.
+_LOGIC_VERSION = "v2"
+
+# Default window (days) for hiding caught-up ongoing shows.
+# Overridden by "hide-shows-upcoming-window" setting when enabled.
+_HIDE_WINDOW_DAYS_DEFAULT = 14
+
+
+def _should_hide_show(user_repo, metadata_service, show_id, window_days=None) -> bool:
+    """Return True if a caught-up show should be hidden from watchlist."""
+    if not _all_aired_episodes_watched(user_repo, metadata_service, show_id):
+        return False
+    show = metadata_service.get_show(show_id)
+    status = (getattr(show, "status", None) or "").strip().lower()
+    if status in _ENDED_STATUSES:
+        return True
+    next_air = getattr(show, "next_episode_air_date", None)
+    if not next_air:
+        return True
+    try:
+        air = datetime.date.fromisoformat(next_air)
+        window = window_days or _HIDE_WINDOW_DAYS_DEFAULT
+        return air > datetime.date.today() + datetime.timedelta(days=window)
+    except ValueError:
+        return True
+
+
+def _all_aired_episodes_watched(user_repo, metadata_service, show_id) -> bool:
+    """Check if all aired episodes of a show are watched."""
+    watched = user_repo.get_watched_episodes_for_show(show_id)
+    if not watched:
+        return False
+    seasons = metadata_service.get_show_seasons(show_id)
+    today = datetime.date.today()
+    for season in seasons:
+        if season.season_number <= 0:
+            continue
+        episodes = metadata_service.get_season_episodes(show_id, season.season_number)
+        for ep in episodes:
+            if ep.air_date:
+                try:
+                    air = datetime.date.fromisoformat(ep.air_date)
+                except ValueError:
+                    continue
+                if air > today:
+                    continue
+                if (ep.season_number, ep.episode_number) not in watched:
+                    return False
+    return True
+
 
 def _verdict_max_age(user_repo, show_id):
     """Ended/canceled shows get a permanent verdict (no expiry); anything
@@ -35,7 +87,8 @@ def _verdict_max_age(user_repo, show_id):
 def _fingerprint(user_repo, show_id):
     """Cheap local inputs: the watched-episode count. Any watch/unwatch
     for this show changes it, self-invalidating the stored verdict."""
-    return "n{}".format(len(user_repo.get_watched_episodes_for_show(show_id)))
+    return "{}n{}".format(_LOGIC_VERSION,
+                          len(user_repo.get_watched_episodes_for_show(show_id)))
 
 
 def _persisted_verdict(user_repo, kind, show_id):
@@ -87,11 +140,9 @@ def is_show_fully_watched(user_repo, metadata_service, show_id):
 
 def _compute_is_show_fully_watched(user_repo, metadata_service, show_id):
     """True if every aired episode is watched AND no future episodes are
-    scheduled. A returning series you're caught up on is *not* fully
-    watched — it stays in the watchlist while new episodes keep coming."""
-    if getattr(user_repo, "is_whole_show_watched", None) and \
-            user_repo.is_whole_show_watched(show_id):
-        return True
+    scheduled AND the show status indicates it has ended or been canceled.
+    A returning series you're caught up on is *not* fully watched — it
+    stays in the watchlist while new episodes keep coming."""
     watched = user_repo.get_watched_episodes_for_show(show_id)
     if not watched:
         return False
@@ -131,6 +182,10 @@ def _compute_is_show_fully_watched(user_repo, metadata_service, show_id):
         return False
 
     show = metadata_service.get_show(show_id)
+    # Ongoing shows are never "fully watched" — keep in watchlist
+    status = getattr(show, "status", None)
+    if status is None or status.strip().lower() not in _ENDED_STATUSES:
+        return False
     if getattr(show, "next_episode_air_date", None):
         return False
 
@@ -237,9 +292,6 @@ def is_show_caught_up(user_repo, metadata_service, show_id):
 def _compute_is_show_caught_up(user_repo, metadata_service, show_id):
     """True if every AIRED episode is watched. Future episodes and ongoing
     status are ignored — a returning series you're current on counts."""
-    if getattr(user_repo, "is_whole_show_watched", None) and \
-            user_repo.is_whole_show_watched(show_id):
-        return True
     watched = user_repo.get_watched_episodes_for_show(show_id)
     if not watched:
         return False

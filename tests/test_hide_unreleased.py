@@ -54,6 +54,9 @@ class _Repo:
     def get_watched_episodes_for_show(self, show_id):
         return set()
 
+    def get_currently_watching_shows(self):
+        return []
+
 
 class _Meta:
     """release/first_air dates per tmdb_id; missing id → no date."""

@@ -14,10 +14,12 @@ import os
 from ..domain.exceptions import NetworkError
 from .. import config
 from .. import poster_cache
+from .. import threads
 from .poster import get_mem_pixbuf, put_mem_pixbuf
 from .search_page import SearchPage
 from .watchlist_page import WatchlistPage
 from .history_page import HistoryPage
+from .diary_page import DiaryPage
 from .calendar_page import CalendarPage
 from .profile_page import ProfilePage
 from .detail_page import DetailPage
@@ -30,12 +32,14 @@ from .anim import (
     fade_out_group,
     fade_in_group,
 )
+from .shared_widgets import make_error_row
 
 
 PAGE_TITLES = {
     "search": "Search",
     "watchlist": "Watchlist",
     "history": "History",
+    "diary": "Diary",
     "calendar": "Calendar",
     "profile": getpass.getuser() or "Profile",
 }
@@ -43,6 +47,8 @@ PAGE_TITLES = {
 PAGES_WITH_TOGGLE = {
     "watchlist",
     "history",
+    "diary",
+    "calendar",
 }
 
 
@@ -103,6 +109,7 @@ class MainPage(Adw.Bin):
         self._selecting_sidebar = False
         self._nav_stack = []
         self._removal_ids = set()
+        self._sync_dialog_open = False
 
         self._hero_stack_bp = Adw.Breakpoint.new(
             Adw.BreakpointCondition.parse("max-width: 990sp")
@@ -145,6 +152,18 @@ class MainPage(Adw.Bin):
         open_search_action.connect("activate", self._on_open_search_activated)
         self.win.add_action(open_search_action)
 
+        # Notification deep link: parameter is (media_type, tmdb_id).
+        open_detail_action = Gio.SimpleAction.new(
+            "open-detail", GLib.VariantType.new("(ss)")
+        )
+        open_detail_action.connect("activate", self._on_open_detail_activated)
+        self.win.add_action(open_detail_action)
+
+        # Master-switch flips hide/show the bell on the open detail page.
+        self.win.settings.connect(
+            "changed::airing-notifications", self._on_notify_setting_changed
+        )
+
         self._shortcut_actions = {
             "preferences": "<Control>comma",
             "toggle-sidebar": "<Control>s",
@@ -170,6 +189,23 @@ class MainPage(Adw.Bin):
         # is toggled in Preferences.
         self.win.settings.connect(
             "changed::hide-unreleased",
+            lambda s, k: (
+                self.invalidate_page("watchlist"),
+                self._refresh_if_stale("watchlist")
+                if self._current_page == "watchlist" else None,
+            ),
+        )
+        # Also refresh when the "hide shows with no upcoming episodes" setting changes
+        self.win.settings.connect(
+            "changed::hide-shows-no-upcoming-episodes",
+            lambda s, k: (
+                self.invalidate_page("watchlist"),
+                self._refresh_if_stale("watchlist")
+                if self._current_page == "watchlist" else None,
+            ),
+        )
+        self.win.settings.connect(
+            "changed::hide-shows-upcoming-window",
             lambda s, k: (
                 self.invalidate_page("watchlist"),
                 self._refresh_if_stale("watchlist")
@@ -374,6 +410,57 @@ class MainPage(Adw.Bin):
 
         sidebar_tv.add_top_bar(sidebar_header)
 
+        # Sync status at the bottom of the sidebar
+        self._sidebar_services_label = Gtk.Label(label="Connect a service to start syncing")
+        self._sidebar_services_label.add_css_class("caption")
+        self._sidebar_services_label.add_css_class("dimmed")
+        self._sidebar_services_label.set_halign(Gtk.Align.CENTER)
+        self._sidebar_services_label.set_margin_top(6)
+
+        self._sidebar_sync_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=6
+        )
+        self._sidebar_sync_box.set_halign(Gtk.Align.CENTER)
+        self._sidebar_sync_box.set_margin_top(2)
+        self._sidebar_sync_box.set_margin_bottom(6)
+
+        self._sidebar_sync_spinner = Adw.Spinner()
+        self._sidebar_sync_spinner.set_size_request(14, 14)
+        self._sidebar_sync_spinner.set_visible(False)
+        self._sidebar_sync_box.append(self._sidebar_sync_spinner)
+
+        self._sidebar_sync_icon = Gtk.Image(
+            icon_name="view-refresh-symbolic"
+        )
+        self._sidebar_sync_icon.set_pixel_size(14)
+        self._sidebar_sync_icon.set_visible(False)
+        self._sidebar_sync_box.append(self._sidebar_sync_icon)
+
+        self._sidebar_sync_label = Gtk.Label(label="")
+        self._sidebar_sync_label.add_css_class("caption")
+        self._sidebar_sync_label.add_css_class("dimmed")
+        self._sidebar_sync_box.append(self._sidebar_sync_label)
+
+        self._sidebar_sync_btn = Gtk.Button()
+        self._sidebar_sync_btn.set_icon_name("view-refresh-symbolic")
+        self._sidebar_sync_btn.add_css_class("flat")
+        self._sidebar_sync_btn.add_css_class("circular")
+        self._sidebar_sync_btn.set_size_request(32, 32)
+        self._sidebar_sync_btn.set_tooltip_text("Sync now")
+        self._sidebar_sync_btn.connect("clicked", self._on_sidebar_sync_clicked)
+        self._sidebar_sync_box.append(self._sidebar_sync_btn)
+
+        # The whole row is clickable — important during sync, when the
+        # button is hidden and only the spinner+label are visible.
+        self._sync_row_gesture = Gtk.GestureClick()
+        self._sync_row_gesture.set_button(1)
+        self._sync_row_gesture.connect("pressed", self._on_sync_row_pressed)
+        self._sidebar_sync_box.add_controller(self._sync_row_gesture)
+
+        sidebar_sync_wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        sidebar_sync_wrapper.append(self._sidebar_services_label)
+        sidebar_sync_wrapper.append(self._sidebar_sync_box)
+
         flatpak_id = os.environ.get("FLATPAK_ID", config.APP_ID)
         if flatpak_id.endswith(".Devel"):
             dev_icon = Gtk.Image(icon_name="utilities-terminal-symbolic")
@@ -387,7 +474,12 @@ class MainPage(Adw.Bin):
             dev_pill.add_css_class("dev-chip-pill")
             dev_chip_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             dev_chip_box.append(dev_pill)
-            sidebar_tv.add_bottom_bar(dev_chip_box)
+            sidebar_sync_wrapper.append(dev_chip_box)
+
+        sidebar_tv.add_bottom_bar(sidebar_sync_wrapper)
+
+        # Init sidebar sync state on boot
+        GLib.idle_add(self._init_sidebar_sync_state)
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -396,7 +488,7 @@ class MainPage(Adw.Bin):
 
         lib_label = Gtk.Label(label="Library")
         lib_label.add_css_class("caption")
-        lib_label.add_css_class("dim-label")
+        lib_label.add_css_class("dimmed")
         lib_label.set_halign(Gtk.Align.START)
         lib_label.set_margin_start(12)
         lib_label.set_margin_top(8)
@@ -411,6 +503,7 @@ class MainPage(Adw.Bin):
             ("search", "Search &amp; Discover", "system-search-symbolic"),
             ("watchlist", "Watchlist", "view-grid-symbolic"),
             ("history", "History", "document-open-recent-symbolic"),
+            ("diary", "Diary", "document-edit-symbolic"),
             ("calendar", "Calendar", "x-office-calendar-symbolic"),
         ]
 
@@ -425,7 +518,7 @@ class MainPage(Adw.Bin):
 
         you_label = Gtk.Label(label="You")
         you_label.add_css_class("caption")
-        you_label.add_css_class("dim-label")
+        you_label.add_css_class("dimmed")
         you_label.set_halign(Gtk.Align.START)
         you_label.set_margin_start(12)
         you_label.set_margin_top(14)
@@ -592,11 +685,314 @@ class MainPage(Adw.Bin):
             if box is not list_box:
                 box.unselect_all()
         self._select_page(row._page_id)
+        # Overlay mode (narrow window): the sidebar floats above content,
+        # so a pick means the destination was chosen — tuck it away.
+        # Transient only; the desktop-mode preference stays untouched.
+        if (self._split_view.get_collapsed()
+                and self._split_view.get_show_sidebar()):
+            self._split_view.set_show_sidebar(False)
+
+    def _on_sync_row_pressed(self, _gesture, n_press, _x, _y):
+        if n_press != 1:
+            return
+        self._route_sidebar_sync_click()
 
     def _cancel_headerbar_sync(self):
         if self._pending_headerbar_sync_id:
             GLib.source_remove(self._pending_headerbar_sync_id)
             self._pending_headerbar_sync_id = None
+
+    def _on_sidebar_sync_clicked(self, _btn):
+        self._route_sidebar_sync_click()
+
+    def _route_sidebar_sync_click(self):
+        """Route a click on the sync row.
+
+        While a sync runs, clicking opens the live progress popup;
+        otherwise it starts a sync (conflict dialogs are surfaced by the
+        engine itself, so the whole row is driven here, not the button).
+        """
+        if getattr(self, "_handling_sync_click", False):
+            return
+        self._handling_sync_click = True
+        try:
+            import logging
+            _log = logging.getLogger(__name__)
+            app = self.win.get_application() if hasattr(self, 'win') else None
+            if not app or not hasattr(app, '_sync_engine'):
+                _log.warning("Sidebar sync clicked but app=%s has_sync_engine=%s",
+                             app, hasattr(app, '_sync_engine') if app else False)
+                return
+            engine = app._sync_engine
+            if engine is None:
+                _log.warning("Sidebar sync clicked but sync engine is None")
+                return
+            if engine.status.state in ("syncing", "enriching"):
+                if hasattr(app, "show_sync_progress"):
+                    app.show_sync_progress()
+                return
+            engine.sync_now()
+            # Reflect the engine's actual state — sync_now may surface a
+            # conflict dialog instead of starting a run.
+            self.update_sidebar_sync(engine.status.state)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Sidebar sync button handler failed")
+        finally:
+            self._handling_sync_click = False
+
+    def _show_sync_deletion_dialog(self, deletions: list[dict]):
+        """Lightweight confirm for items still on the service but gone locally.
+
+        The run already aborted before any remote change.  The user either
+        confirms the removal ("Remove") or cancels ("Cancel"); there is no
+        permanent "Keep on Simkl" state.  Closing (X / ESC) counts as Cancel,
+        and the conflict is re-offered on the next sync.
+        """
+        all_items = []
+        for d in deletions:
+            for title, _mt, _tmdb_id in d["items"]:
+                all_items.append((title, d["display_name"]))
+
+        total = len(all_items)
+        svc_names = sorted({name for _t, name in all_items})
+        svc_btn = "/".join(svc_names)
+
+        if total == 1:
+            title_text, svc = all_items[0]
+            body = (
+                f"\u201c{title_text}\u201d is still on {svc}, but you "
+                "deleted it from your local library. Remove it from the "
+                "service too?"
+            )
+        else:
+            svc_list = ", ".join(svc_names)
+            body = (
+                f"{total} items you deleted locally are still on "
+                f"{svc_list}. Remove them from the service too?\n\n"
+                "The ratings and history for these titles are also erased "
+                "on the service."
+            )
+
+        dialog = Adw.AlertDialog(
+            heading=f"Remove {total} title{'s' if total != 1 else ''} from "
+                    f"{svc_btn}?",
+            body=body,
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance(
+            "remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+
+        def _on_answer(_d, response):
+            app = self.win.get_application() if hasattr(self, "win") else None
+            engine = getattr(app, "_sync_engine", None) if app else None
+            if engine is None:
+                return
+            if response == "remove":
+                engine.apply_pending_deletions()
+                engine.sync_now()
+                self.update_sidebar_sync("syncing")
+            else:
+                engine.retain_deletions()
+                engine._defer_surface = False
+                self.update_sidebar_sync(engine.status.state)
+
+        dialog.connect("response", _on_answer)
+
+        def _on_closed(_d):
+            self._sync_dialog_open = False
+
+        dialog.connect("closed", _on_closed)
+
+        app = self.win.get_application() if hasattr(self, "win") else None
+        engine = getattr(app, "_sync_engine", None) if app else None
+        if engine is not None:
+            engine._defer_surface = True
+
+        self._sync_dialog_open = True
+        try:
+            dialog.present(self.win)
+            self.update_sidebar_sync("waiting")
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to present sync deletion confirm")
+            self._sync_dialog_open = False
+            if engine is not None:
+                engine._defer_surface = False
+
+    def update_sidebar_sync(self, state: str, results: dict | None = None,
+                            backfill_current: int = 0, backfill_total: int = 0,
+                            status_text: str = ""):
+        """Update the sidebar bottom sync status widget."""
+        import time as _time
+
+        if state == "syncing":
+            self._sidebar_sync_spinner.set_visible(True)
+            self._sidebar_sync_spinner.add_css_class("sync-spinner")
+            self._sidebar_sync_icon.set_visible(False)
+            self._sidebar_sync_icon.remove_css_class("sync-check")
+            self._sidebar_sync_icon.remove_css_class("sync-error")
+            self._sidebar_sync_label.set_label(status_text or "Syncing…")
+            self._sidebar_sync_btn.set_visible(False)
+        elif state == "enriching":
+            self._sidebar_sync_spinner.set_visible(True)
+            self._sidebar_sync_spinner.add_css_class("sync-spinner")
+            self._sidebar_sync_icon.set_visible(False)
+            self._sidebar_sync_icon.remove_css_class("sync-check")
+            self._sidebar_sync_icon.remove_css_class("sync-error")
+            if backfill_total > 0:
+                self._sidebar_sync_label.set_label(
+                    f"Fetching artwork… {backfill_current} of {backfill_total}"
+                )
+            else:
+                self._sidebar_sync_label.set_label("Fetching artwork…")
+            self._sidebar_sync_btn.set_visible(False)
+        elif state == "done":
+            self._sidebar_sync_spinner.set_visible(False)
+            self._sidebar_sync_spinner.remove_css_class("sync-spinner")
+            self._sidebar_sync_icon.set_visible(True)
+            self._sidebar_sync_icon.set_from_icon_name("object-select-symbolic")
+            self._sidebar_sync_icon.add_css_class("sync-check")
+            self._sidebar_sync_icon.remove_css_class("sync-error")
+            self._sidebar_sync_btn.set_visible(True)
+            self._sidebar_sync_label.set_label("")
+            GLib.timeout_add(500, self._dismiss_sync_check)
+        elif state == "waiting":
+            # Decision needed: a conflict or mapping dialog is open and the
+            # sync waits for the user.
+            self._sidebar_sync_spinner.set_visible(False)
+            self._sidebar_sync_spinner.remove_css_class("sync-spinner")
+            self._sidebar_sync_icon.set_visible(True)
+            self._sidebar_sync_icon.set_from_icon_name(
+                "dialog-warning-symbolic")
+            self._sidebar_sync_icon.add_css_class("sync-waiting")
+            self._sidebar_sync_icon.remove_css_class("sync-check")
+            self._sidebar_sync_icon.remove_css_class("sync-error")
+            self._sidebar_sync_label.set_label(
+                status_text or "Waiting for your decision\u2026"
+            )
+            self._sidebar_sync_btn.set_visible(False)
+        elif state == "ready":
+            self._sidebar_sync_spinner.set_visible(False)
+            self._sidebar_sync_spinner.remove_css_class("sync-spinner")
+            self._sidebar_sync_icon.set_visible(True)
+            self._sidebar_sync_icon.set_from_icon_name(
+                "dialog-question-symbolic")
+            self._sidebar_sync_icon.add_css_class("sync-waiting")
+            self._sidebar_sync_icon.remove_css_class("sync-check")
+            self._sidebar_sync_icon.remove_css_class("sync-error")
+            self._sidebar_sync_btn.set_visible(True)
+            self._sidebar_sync_label.set_label(
+                status_text or "A sync decision is pending")
+            GLib.timeout_add(
+                500,
+                lambda: self._sidebar_sync_icon.remove_css_class("sync-waiting"))
+        elif state == "error":
+            self._sidebar_sync_spinner.set_visible(False)
+            self._sidebar_sync_spinner.remove_css_class("sync-spinner")
+            self._sidebar_sync_icon.set_visible(True)
+            self._sidebar_sync_icon.set_from_icon_name("dialog-warning-symbolic")
+            self._sidebar_sync_icon.add_css_class("sync-error")
+            self._sidebar_sync_icon.remove_css_class("sync-check")
+            self._sidebar_sync_label.set_label("Sync failed")
+            self._sidebar_sync_btn.set_visible(True)
+            GLib.timeout_add(
+                500, lambda: self._sidebar_sync_icon.remove_css_class("sync-error")
+            )
+        elif state == "waiting":
+            # Decision needed: a conflict or mapping dialog is open and the
+            # sync waits for the user.
+            self._sidebar_sync_spinner.set_visible(True)
+            self._sidebar_sync_spinner.add_css_class("sync-spinner")
+            self._sidebar_sync_icon.set_visible(False)
+            self._sidebar_sync_icon.remove_css_class("sync-check")
+            self._sidebar_sync_icon.remove_css_class("sync-error")
+            self._sidebar_sync_label.set_label(
+                status_text or "Waiting for your decision\u2026"
+            )
+            self._sidebar_sync_btn.set_visible(False)
+        else:
+            self._sidebar_sync_spinner.set_visible(False)
+            self._sidebar_sync_spinner.remove_css_class("sync-spinner")
+            self._sidebar_sync_icon.set_visible(False)
+            self._sidebar_sync_icon.remove_css_class("sync-check")
+            self._sidebar_sync_icon.remove_css_class("sync-error")
+            self._sidebar_sync_btn.set_visible(True)
+            self._update_last_sync_label()
+
+    def _get_first_syncing_service(self, results):
+        """Get the name of the first backend being synced."""
+        if results:
+            for name in results:
+                return name.title()
+        return "cloud"
+
+    def _dismiss_sync_check(self):
+        """Fade out checkmark, fade in 'Synced just now' label."""
+        self._sidebar_sync_icon.remove_css_class("sync-check")
+        self._sidebar_sync_label.set_label("Synced just now")
+        self._sidebar_sync_label.add_css_class("sync-fade")
+        GLib.timeout_add(
+            5000, lambda: self._sidebar_sync_label.remove_css_class("sync-fade")
+        )
+        return False  # one-shot
+
+    def _update_last_sync_label(self):
+        import time as _time
+        settings = getattr(self.win, "settings", None) if hasattr(self, "win") else None
+        if settings is None:
+            self._sidebar_sync_label.set_label("")
+            return
+        ts = settings.get_int64("sync-last-sync")
+        if ts == 0:
+            self._sidebar_sync_label.set_label("")
+        else:
+            diff = int(_time.time()) - ts
+            if diff < 60:
+                self._sidebar_sync_label.set_label("Synced just now")
+            elif diff < 3600:
+                mins = diff // 60
+                self._sidebar_sync_label.set_label(
+                    f"Synced {mins}m ago" if mins != 1 else "Synced 1m ago"
+                )
+            elif diff < 86400:
+                hours = diff // 3600
+                self._sidebar_sync_label.set_label(
+                    f"Synced {hours}h ago" if hours != 1 else "Synced 1h ago"
+                )
+            else:
+                days = diff // 86400
+                self._sidebar_sync_label.set_label(
+                    f"Synced {days}d ago" if days != 1 else "Synced 1d ago"
+                )
+
+    def update_connected_services(self):
+        """Update the sidebar label showing which services are connected."""
+        from ..data.sync.credentials import load_credential
+        connected = []
+        if load_credential("tmdb", "session_id"):
+            connected.append("TMDB")
+        if load_credential("simkl", "access_token"):
+            connected.append("Simkl")
+        if load_credential("letterboxd", "session_cookie"):
+            connected.append("Letterboxd")
+        if connected:
+            self._sidebar_services_label.set_label(" · ".join(connected))
+            self._sidebar_services_label.remove_css_class("dimmed")
+            self._sidebar_services_label.add_css_class("accent")
+        else:
+            self._sidebar_services_label.set_label("Connect a service to start syncing")
+            self._sidebar_services_label.remove_css_class("accent")
+            self._sidebar_services_label.add_css_class("dimmed")
+
+    def _init_sidebar_sync_state(self):
+        """Read GSettings + keyring to set initial sidebar state."""
+        self._update_last_sync_label()
+        self.update_connected_services()
 
     def _sync_headerbar(self, page_id):
         self._pending_headerbar_sync_id = None
@@ -798,6 +1194,46 @@ class MainPage(Adw.Bin):
             400, self._sync_headerbar_detail, title
         )
 
+    def _on_open_detail_activated(self, _action, param):
+        """Notification deep link: focus the window and open the media."""
+        media_type, tmdb_id_str = param.unpack()
+        try:
+            tmdb_id = int(tmdb_id_str)
+        except (TypeError, ValueError):
+            return
+        self.win.present()
+        threads.submit(self._resolve_notification_target, media_type, tmdb_id)
+
+    def _resolve_notification_target(self, media_type, tmdb_id):
+        item = None
+        getter = (
+            self.metadata_service.get_show
+            if media_type == "show"
+            else self.metadata_service.get_movie
+        )
+        try:
+            item = getter(tmdb_id)
+        except Exception:
+            item = None
+        if item is None:
+            # Fall back to the cached row so the click still lands.
+            cached = self.user_repo.get_media_item(tmdb_id)
+            if cached is not None:
+                from types import SimpleNamespace
+
+                item = SimpleNamespace(
+                    tmdb_id=tmdb_id,
+                    title=cached.get("title") or "",
+                    poster_url=cached.get("poster_url"),
+                )
+        if item is not None:
+            GLib.idle_add(self.show_detail, media_type, item)
+
+    def _on_notify_setting_changed(self, _settings, _key):
+        page = getattr(self, "_detail_page", None)
+        if page is not None and hasattr(page, "_refresh_notify_ui"):
+            page._refresh_notify_ui()
+
     def show_detail(self, media_type, item):
         top = self._nav_stack[-1] if self._nav_stack else None
         if (
@@ -920,7 +1356,13 @@ class MainPage(Adw.Bin):
             self._run_fetch_group(hero, hero_keys)
             detail = hero.get("detail")
             if not detail:
-                GLib.idle_add(detail_page._show_error, "Failed to load details. Check your connection.")
+                def _hero_retry():
+                    GLib.Thread.new("detail-hero-retry", self._prefetch_hero, media_type, item, detail_page)
+                error_row = make_error_row(
+                    "Failed to load details. Check your connection.",
+                    on_retry=_hero_retry,
+                )
+                GLib.idle_add(detail_page._replace_error, error_row)
                 return
 
             if (
@@ -942,7 +1384,13 @@ class MainPage(Adw.Bin):
                 return
             GLib.idle_add(detail_page.populate_hero, hero, None)
         except NetworkError as e:
-            GLib.idle_add(detail_page._show_error, str(e))
+            def _hero_retry():
+                GLib.Thread.new("detail-hero-retry", self._prefetch_hero, media_type, item, detail_page)
+            error_row = make_error_row(
+                str(e),
+                on_retry=_hero_retry,
+            )
+            GLib.idle_add(detail_page._replace_error, error_row)
 
     def _prefetch_rest(self, media_type, item, detail_page):
         if getattr(detail_page, "_cancelled", False):
@@ -1011,19 +1459,31 @@ class MainPage(Adw.Bin):
             self._run_fetch_group(lazy, lazy_keys)
             if getattr(detail_page, "_cancelled", False):
                 return
-            # Secondary sections wait for the hero's rise to finish so
-            # hero posters win the first frames.
+
+            skel_boxes = []
+
+            def _add_skeletons():
+                skel_boxes.extend(self._add_skeleton_row(detail_page.related_box, 4))
+                skel_boxes.extend(self._add_skeleton_row(detail_page.cast_box, 4))
+                skel_boxes.extend(self._add_skeleton_row(detail_page.streaming_box, 4))
+                return False
+
+            GLib.idle_add(_add_skeletons)
+
             from .anim import ENTRANCE_MS
-            GLib.timeout_add(
-                ENTRANCE_MS + 150,
-                lambda: (
-                    detail_page.populate_related(lazy.get("related", [])),
-                    detail_page.populate_cast(lazy.get("cast", [])),
-                    detail_page.populate_streaming(
-                        lazy.get("streaming") if show_streaming else None),
-                    False,
-                )[3],
-            )
+
+            def _populate_sections():
+                for s in skel_boxes:
+                    parent = s.get_parent()
+                    if parent:
+                        parent.remove(s)
+                detail_page.populate_related(lazy.get("related", []))
+                detail_page.populate_cast(lazy.get("cast", []))
+                detail_page.populate_streaming(
+                    lazy.get("streaming") if show_streaming else None)
+                return False
+
+            GLib.timeout_add(ENTRANCE_MS + 150, _populate_sections)
         except NetworkError:
             pass
 
@@ -1041,6 +1501,17 @@ class MainPage(Adw.Bin):
             threads.append(t)
         for t in threads:
             t.join()
+
+    def _add_skeleton_row(self, parent_box, count=4):
+        skels = []
+        for _ in range(count):
+            skel = Gtk.Box()
+            skel.set_size_request(120, 160)
+            skel.add_css_class("skeleton-pulse")
+            skel.set_margin_end(12)
+            parent_box.append(skel)
+            skels.append(skel)
+        return skels
 
     def _download_texture(self, url):
         try:
@@ -1107,6 +1578,7 @@ class MainPage(Adw.Bin):
             "search": lambda: SearchPage(self.win, self.user_repo, self.metadata_service, self),
             "watchlist": lambda: WatchlistPage(self.win, self.user_repo, self.metadata_service, self),
             "history": lambda: HistoryPage(self.win, self.user_repo, self.metadata_service, self),
+            "diary": lambda: DiaryPage(self.win, self.user_repo, self.metadata_service, self),
             "calendar": lambda: CalendarPage(self.win, self.user_repo, self.metadata_service, self),
             "profile": lambda: ProfilePage(self.win, self.user_repo, self.metadata_service, self),
         }

@@ -59,6 +59,9 @@ class _Settings:
     def get_int(self, key):
         return self._ints.get(key, 0)
 
+    def get_int64(self, key):
+        return self._ints.get(key, 0)
+
     def set_boolean(self, key, value):
         self.writes.append(("ssl", key, value))
         self._bools[key] = value

@@ -8,10 +8,13 @@ frequently and are always fetched fresh.
 """
 
 import json
+import logging
 import os
 import sqlite3
 import threading
 import time
+
+_log = logging.getLogger(__name__)
 
 from ...domain.models import Movie, Show, Season, Episode, StreamingInfo, StreamingProvider, Collection
 
@@ -245,6 +248,19 @@ class MetadataCache:
         if self._is_expired(row["cached_at"]):
             return None
         return self._row_to_media(row)
+
+    def get_genre_ids(self, tmdb_id: int) -> list[int] | None:
+        """Return cached genre_ids for a tmdb_id, or None if not cached."""
+        row = self._ensure_conn().execute(
+            "SELECT genre_ids FROM media_items WHERE tmdb_id = ?", (tmdb_id,)
+        ).fetchone()
+        if row is None or row["genre_ids"] is None:
+            return None
+        try:
+            ids = json.loads(row["genre_ids"])
+            return [int(g) for g in ids] if ids else None
+        except (json.JSONDecodeError, TypeError):
+            return None
 
     def put_media(self, media: Movie | Show) -> None:
         """Store or update a media item in the cache."""

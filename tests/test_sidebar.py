@@ -134,7 +134,7 @@ class SidebarSectionLabelsTest(unittest.TestCase):
         label = _find_label_with_text(mp._sidebar_page, "Library")
         self.assertIsNotNone(label)
         self.assertTrue(label.has_css_class("caption"))
-        self.assertTrue(label.has_css_class("dim-label"))
+        self.assertTrue(label.has_css_class("dimmed"))
 
     def test_you_label_present(self):
         mp = self._make()

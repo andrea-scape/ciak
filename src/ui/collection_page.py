@@ -5,8 +5,10 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Adw
 
 from ..domain.exceptions import NetworkError
-from .media_card import make_media_card, config_grid
+from .media_card import make_media_card, config_grid, PAGE_GUTTER_PX
+from . import scroll_restore
 from .anim import CONTENT_MS, CONTENT_PX, rise_fade_in
+from .shared_widgets import make_error_row
 
 
 class CollectionPage(Adw.Bin):
@@ -34,14 +36,15 @@ class CollectionPage(Adw.Bin):
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
+        self.scrolled = scrolled
 
         clamp = Adw.Clamp()
         clamp.set_maximum_size(1400)
         clamp.set_tightening_threshold(900)
 
         self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
-        self.content_box.set_margin_start(28)
-        self.content_box.set_margin_end(28)
+        self.content_box.set_margin_start(PAGE_GUTTER_PX)
+        self.content_box.set_margin_end(PAGE_GUTTER_PX)
         self.content_box.set_margin_top(24)
         self.content_box.set_margin_bottom(36)
 
@@ -53,7 +56,7 @@ class CollectionPage(Adw.Bin):
 
         self.overview_label = Gtk.Label()
         self.overview_label.add_css_class("body")
-        self.overview_label.add_css_class("dim-label")
+        self.overview_label.add_css_class("dimmed")
         self.overview_label.set_xalign(0)
         self.overview_label.set_wrap(True)
         self.overview_label.set_visible(False)
@@ -82,6 +85,15 @@ class CollectionPage(Adw.Bin):
         self.grid.set_max_children_per_line(6)
         self.content_box.append(self.grid)
 
+        # Add loading skeletons to grid
+        self._skeletons = []
+        for _ in range(6):
+            placeholder = Gtk.Box()
+            placeholder.set_size_request(200, 300)
+            placeholder.add_css_class("skeleton-pulse")
+            self.grid.append(placeholder)
+            self._skeletons.append(placeholder)
+
         clamp.set_child(self.content_box)
         scrolled.set_child(clamp)
         self.set_child(scrolled)
@@ -104,6 +116,15 @@ class CollectionPage(Adw.Bin):
     def _populate(self, token, collection):
         if token != self._render_gen or self._cancelled:
             return False
+        for s in self._skeletons:
+            self.grid.remove(s)
+        self._skeletons.clear()
+        # Refreshes (watched badges, stats) keep the viewport; first
+        # render starts at the top.
+        restore_y = (
+            scroll_restore.capture(self.scrolled)
+            if scroll_restore.had_content(self.scrolled) else 0.0
+        )
         self._clear()
 
         if collection is None:
@@ -117,10 +138,10 @@ class CollectionPage(Adw.Bin):
             empty.set_vexpand(True)
             icon = Gtk.Image(icon_name="folder-videos-symbolic")
             icon.set_pixel_size(48)
-            icon.add_css_class("dim-label")
+            icon.add_css_class("dimmed")
             empty.append(icon)
             lbl = Gtk.Label(label="No titles in this collection yet")
-            lbl.add_css_class("dim-label")
+            lbl.add_css_class("dimmed")
             empty.append(lbl)
             self.content_box.append(empty)
             return False
@@ -162,6 +183,8 @@ class CollectionPage(Adw.Bin):
             cards.append(card)
 
         rise_fade_in(cards, CONTENT_MS, CONTENT_PX)
+        if restore_y > 0.0:
+            scroll_restore.restore(self.scrolled, restore_y)
         return False
 
     # ------------------------------------------------------------------
@@ -170,8 +193,10 @@ class CollectionPage(Adw.Bin):
 
     def _show_error(self, msg):
         self._clear()
-        self._error_label = Gtk.Label(label=f"Error: {msg}", margin_top=24)
-        self._error_label.set_xalign(0)
+        self._error_label = make_error_row(
+            f"Error: {msg}",
+            on_retry=lambda: self._fetch(),
+        )
         self.content_box.append(self._error_label)
         return False
 

@@ -19,7 +19,9 @@ from ..data.importers import (
     ImportParseError,
     Matcher,
     date_to_ts,
+    expand_show_watched,
     select_parser,
+    verify_metadata,
 )
 from .export_dialog import (
     _get_main_window,
@@ -80,9 +82,9 @@ def _fetch_posters(targets, metadata_service) -> list:
     def _one(tmdb_id, media_type):
         try:
             if media_type == "show":
-                movie = metadata_service.get_show(tmdb_id)
+                movie = metadata_service.get_show(tmdb_id, refresh=True)
             else:
-                movie = metadata_service.get_movie(tmdb_id)
+                movie = metadata_service.get_movie(tmdb_id, refresh=True)
             _prefetch_poster(movie.poster_url)
         except Exception:
             pass
@@ -129,8 +131,6 @@ class ImportPreviewDialog(Adw.Dialog):
         self._toggle_btn = None
         self._summary_label = None
         self._list_box = None
-        self.present(parent)
-
         self._open_file_dialog()
 
     # ------------------------------------------------------------------
@@ -186,6 +186,7 @@ class ImportPreviewDialog(Adw.Dialog):
             self.close()
             return
 
+        self.present(self._parent)
         self._build_loading_view(os.path.basename(path))
         self._run_parse_and_match(path)
 
@@ -195,13 +196,12 @@ class ImportPreviewDialog(Adw.Dialog):
 
     def _build_loading_view(self, filename: str):
         self._clear_content()
-        spinner = Gtk.Spinner()
+        spinner = Adw.Spinner()
         spinner.set_size_request(48, 48)
-        spinner.start()
         label = Gtk.Label(
             label=f"Parsing and matching {filename}…"
         )
-        label.add_css_class("dim-label")
+        label.add_css_class("dimmed")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_valign(Gtk.Align.CENTER)
         box.append(spinner)
@@ -283,7 +283,7 @@ class ImportPreviewDialog(Adw.Dialog):
                 f"{unmatched} unmatched"
             )
         )
-        self._summary_label.add_css_class("dim-label")
+        self._summary_label.add_css_class("dimmed")
         self._summary_label.set_halign(Gtk.Align.START)
         header.append(self._summary_label)
 
@@ -367,7 +367,7 @@ class ImportPreviewDialog(Adw.Dialog):
         subtitle = Gtk.Label(label=" · ".join(subtitle_parts))
         subtitle.set_halign(Gtk.Align.START)
         subtitle.add_css_class("caption")
-        subtitle.add_css_class("dim-label")
+        subtitle.add_css_class("dimmed")
         text_box.append(subtitle)
 
         hbox.append(text_box)
@@ -467,7 +467,123 @@ class ImportPreviewDialog(Adw.Dialog):
         service = self._metadata_service
 
         poster_targets = self._poster_targets(selected)
-        total_posters = len(poster_targets)
+
+        def _set_progress(text):
+            GLib.idle_add(self._set_import_label, text)
+
+        def _work():
+            expanded_watched, expand_skipped = expand_show_watched(
+                watched, service
+            )
+            candidates = {
+                "watched": expanded_watched,
+                "watchlist": watchlist,
+                "ratings": ratings,
+            }
+            valid: dict[str, list[dict]] = {}
+            broken: list[tuple[str, str, object]] = []
+            for target, rows in candidates.items():
+                good, bad = verify_metadata(rows, service)
+                valid[target] = good
+                for row in bad:
+                    broken.append(
+                        (target, row.get("title") or "Unknown",
+                         row.get("year"))
+                    )
+            for row in expand_skipped:
+                broken.append(
+                    ("watched", row.get("title") or "Unknown",
+                     row.get("year"))
+                )
+            return valid, candidates, broken
+
+        def _done(future):
+            try:
+                valid, candidates, broken = future.result()
+            except Exception as exc:
+                tb_text = "".join(
+                    traceback.format_exception(type(exc), exc, exc.__traceback__)
+                )
+                _show_error_dialog(
+                    str(exc), tb_text, self._parent, title="Import Failed"
+                )
+                self.close()
+                return
+            if broken:
+                self._show_unverifiable_dialog(valid, candidates, broken)
+                return
+            self._commit(valid, poster_targets, skipped=0)
+
+        future = threads.submit(_work)
+        future.add_done_callback(lambda f: GLib.idle_add(_done, f))
+
+    def _show_unverifiable_dialog(self, valid, candidates, broken):
+        """Warn about items TMDB could not confirm instead of importing
+        broken shortcuts. The user picks what to import."""
+        self._import_btn.set_sensitive(True)
+        self._update_import_button()
+        n_valid = sum(len(rows) for rows in valid.values())
+        lines = []
+        for target, title, year in broken[:10]:
+            label = f"{title} ({year})" if year else str(title)
+            lines.append(f"• {label} — {target}")
+        if len(broken) > 10:
+            lines.append(f"…and {len(broken) - 10} more")
+        body = (
+            "These couldn't be found on TMDB, so importing them would "
+            "create broken entries:\n" + "\n".join(lines)
+        )
+        dialog = Adw.AlertDialog.new(
+            f"{len(broken)} item{'s' if len(broken) != 1 else ''} "
+            "couldn't be verified",
+            body,
+        )
+        dialog.add_response("cancel", "Cancel")
+        if n_valid:
+            dialog.add_response(
+                "import-valid", f"Import {n_valid} verified items"
+            )
+            dialog.set_default_response("import-valid")
+        dialog.add_response("import-anyway", "Import anyway")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_dlg, response):
+            if response == "import-valid":
+                self._commit(valid, self._poster_targets(
+                    [r for rows in valid.values() for r in
+                     self._rows_for_posters(rows)]),
+                    skipped=len(broken))
+            elif response == "import-anyway":
+                self._commit(
+                    {k: list(v) for k, v in candidates.items()},
+                    self._poster_targets(list(self._selected_results())),
+                    skipped=0)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
+
+    @staticmethod
+    def _rows_for_posters(rows):
+        """Wrap plain row dicts into the result shape _poster_targets reads."""
+        from types import SimpleNamespace
+        wrapped = []
+        for r in rows:
+            wrapped.append(SimpleNamespace(
+                tmdb_id=r.get("tmdb_id"),
+                media_type=r.get("media_type"),
+                item=SimpleNamespace(
+                    media_type=r.get("media_type"),
+                    show_tmdb_id=r.get("show_tmdb_id"),
+                ),
+            ))
+        return wrapped
+
+    def _commit(self, payload, poster_targets, skipped=0):
+        """Write validated rows in the background, then toast + close."""
+        self._import_btn.set_sensitive(False)
+        self._import_btn.set_label("Importing…")
+        repo = self._repository
+        service = self._metadata_service
         _poster_done = [0]
 
         def _set_progress(text):
@@ -475,19 +591,22 @@ class ImportPreviewDialog(Adw.Dialog):
 
         def _work():
             counts = {
-                "watched": repo.import_watched(watched),
-                "watchlist": repo.import_watchlist(watchlist),
-                "ratings": repo.import_ratings(ratings),
+                "watched": repo.import_watched(payload.get("watched", [])),
+                "watchlist": repo.import_watchlist(payload.get("watchlist", [])),
+                "ratings": repo.import_ratings(payload.get("ratings", [])),
             }
+            # Auto-add watched shows to watchlist if missing
+            repo.ensure_watched_shows_on_watchlist(payload.get("watched", []))
             total = sum(counts.values())
-            if total_posters:
+            if poster_targets:
                 _set_progress("Fetching posters…")
                 futures = _fetch_posters(poster_targets, service)
                 for future in futures:
                     future.result()
                     _poster_done[0] += 1
                     _set_progress(
-                        f"Downloading posters {_poster_done[0]}/{total_posters}…"
+                        f"Downloading posters {_poster_done[0]}/"
+                        f"{len(poster_targets)}…"
                     )
             return total
 
@@ -505,9 +624,10 @@ class ImportPreviewDialog(Adw.Dialog):
                 return
             self._invalidate_pages()
             self.close()
-            toast = Adw.Toast.new(
-                f"Imported {total} item{'s' if total != 1 else ''}"
-            )
+            text = f"Imported {total} item{'s' if total != 1 else ''}"
+            if skipped:
+                text += f" · skipped {skipped}"
+            toast = Adw.Toast.new(text)
             toast.set_timeout(10)
             _show_toast(toast, self._parent)
 
@@ -531,7 +651,7 @@ class ImportPreviewDialog(Adw.Dialog):
                     result.media_type if result.media_type == "show" else "movie"
                 )
         try:
-            for tmdb_id, media_type in self._repository.get_media_missing_posters():
+            for tmdb_id, media_type, _title, _year in self._repository.get_media_missing_posters():
                 targets.setdefault(tmdb_id, media_type)
         except Exception:
             pass

@@ -551,6 +551,91 @@ class MatcherTest(unittest.TestCase):
         self.assertEqual(result.tmdb_id, 550)
 
 
+class VerifyMetadataTest(unittest.TestCase):
+    """_verify_metadata partitions rows by live TMDB existence."""
+
+    def _service(self):
+        from src.domain.exceptions import NetworkError
+
+        class _Meta:
+            def __init__(self, title):
+                self.title = title
+
+        class _Stub:
+            def __init__(self):
+                self.calls = []
+
+            def get_movie(self, tmdb_id, refresh=False):
+                self.calls.append(("movie", tmdb_id))
+                if tmdb_id == 550:
+                    return _Meta("Fight Club")
+                if tmdb_id == 551:
+                    return _Meta("")
+                raise NetworkError("not found")
+
+            def get_show(self, tmdb_id, refresh=False):
+                self.calls.append(("show", tmdb_id))
+                if tmdb_id == 999:
+                    return _Meta("Show")
+                raise NetworkError("not found")
+
+        return _Stub()
+
+    def test_partitions_valid_and_broken(self):
+        from src.data.importers import verify_metadata
+
+        rows = [
+            {"tmdb_id": 550, "media_type": "movie", "title": "Fight Club"},
+            {"tmdb_id": 123456789, "media_type": "movie",
+             "title": "Vampire Hunter D: Resurrection"},
+            {"tmdb_id": 551, "media_type": "movie", "title": "No Title"},
+        ]
+        valid, broken = verify_metadata(rows, self._service())
+        self.assertEqual([r["tmdb_id"] for r in valid], [550])
+        self.assertEqual(
+            [r["tmdb_id"] for r in broken], [123456789, 551]
+        )
+
+    def test_episodes_validate_parent_show_once_and_backfill_title(self):
+        from src.data.importers import verify_metadata
+
+        service = self._service()
+        rows = [
+            {"tmdb_id": 5001, "media_type": "episode", "title": "",
+             "show_tmdb_id": 999, "season_number": 1, "episode_number": 1},
+            {"tmdb_id": 5002, "media_type": "episode", "title": "",
+             "show_tmdb_id": 999, "season_number": 1, "episode_number": 2},
+        ]
+        valid, broken = verify_metadata(rows, service)
+        self.assertEqual(broken, [])
+        self.assertEqual(len(valid), 2)
+        self.assertTrue(all(r["title"] == "Show" for r in valid))
+        self.assertEqual(service.calls.count(("show", 999)), 1)
+
+    def test_missing_id_is_broken(self):
+        from src.data.importers import verify_metadata
+
+        valid, broken = verify_metadata(
+            [{"tmdb_id": None, "media_type": "movie", "title": "Ghost"}],
+            self._service(),
+        )
+        self.assertEqual(valid, [])
+        self.assertEqual(len(broken), 1)
+
+    def test_expand_show_watched_skips_unresolvable_show(self):
+        from src.data.importers import expand_show_watched
+        from src.domain.exceptions import NetworkError
+
+        class _Stub:
+            def get_show(self, tmdb_id, refresh=False):
+                raise NetworkError("not found")
+
+        row = {"tmdb_id": 424242, "media_type": "show", "title": "Ghost"}
+        expanded, skipped = expand_show_watched([row], _Stub())
+        self.assertEqual(expanded, [])
+        self.assertEqual(skipped, [row])
+
+
 class RepositoryImportTest(unittest.TestCase):
     def _make_repo(self, d):
         db = os.path.join(d, "test.sqlite")
@@ -645,6 +730,48 @@ class RepositoryImportTest(unittest.TestCase):
             ])
             existing = repo.get_existing_ids("watched_items")
             self.assertIn(550, existing)
+
+    def test_import_skips_rows_without_tmdb_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._make_repo(d)
+            self.assertEqual(
+                repo.import_watched([
+                    {"tmdb_id": None, "media_type": "movie",
+                     "title": "Ghost", "watched_at": 1},
+                ]),
+                0,
+            )
+            self.assertEqual(
+                repo.import_watchlist([
+                    {"tmdb_id": 0, "media_type": "movie", "title": "Ghost"},
+                ]),
+                0,
+            )
+            self.assertEqual(
+                repo.import_ratings([
+                    {"tmdb_id": None, "media_type": "movie",
+                     "title": "Ghost", "rating": 8},
+                ]),
+                0,
+            )
+            conn = repo._ensure_conn()
+            for table in ("watched_items", "watchlist_items", "ratings",
+                          "media_items"):
+                self.assertEqual(
+                    conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0],
+                    0,
+                )
+
+    def test_upsert_media_meta_skips_new_empty_title_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._make_repo(d)
+            conn = repo._ensure_conn()
+            with conn:
+                repo._upsert_media_meta(conn, 424242, "movie", "", 2026, None)
+            self.assertEqual(
+                conn.execute("SELECT COUNT(*) FROM media_items").fetchone()[0],
+                0,
+            )
 
 
 class ServiceRefreshTest(unittest.TestCase):

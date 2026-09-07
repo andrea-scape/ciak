@@ -13,7 +13,8 @@ from ..domain.exceptions import NetworkError
 from ..domain.models import Episode
 from . import watched_state
 from .genre_chips import GenreChipsRow, item_genre_names, matches_all
-from .media_card import add_watched_badge, config_grid, make_media_card
+from .media_card import add_watched_badge, config_grid, make_media_card, PAGE_GUTTER_PX
+from . import scroll_restore
 from . import page_reveal
 from . import poster
 from .anim import (
@@ -25,6 +26,7 @@ from .anim import (
     fade_out_group,
     rise_fade_in,
 )
+from .shared_widgets import make_error_row
 
 
 POSTER_W = 160
@@ -64,19 +66,21 @@ class WatchlistPage(Gtk.Box):
 
         self._filter_query = ""
         self._empty_label_widget = None
+        self._hide_caught_up = True
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
         scrolled.set_hexpand(True)
+        self.scrolled = scrolled
 
         clamp = Adw.Clamp()
         clamp.set_maximum_size(1400)
         clamp.set_tightening_threshold(900)
 
         self.dashboard_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=28)
-        self.dashboard_box.set_margin_start(28)
-        self.dashboard_box.set_margin_end(28)
+        self.dashboard_box.set_margin_start(PAGE_GUTTER_PX)
+        self.dashboard_box.set_margin_end(PAGE_GUTTER_PX)
         self.dashboard_box.set_margin_top(24)
         self.dashboard_box.set_margin_bottom(36)
 
@@ -95,7 +99,7 @@ class WatchlistPage(Gtk.Box):
 
         if self._show_sort:
             sort_label = Gtk.Label(label="Sort by")
-            sort_label.add_css_class("dim-label")
+            sort_label.add_css_class("dimmed")
             sort_label.set_valign(Gtk.Align.CENTER)
             top_row.append(sort_label)
 
@@ -129,6 +133,7 @@ class WatchlistPage(Gtk.Box):
                 transition_type=Gtk.RevealerTransitionType.SLIDE_UP,
                 transition_duration=ENTRANCE_MS)
             self.upcoming_revealer.set_child(self.upcoming_section[0])
+            self.upcoming_revealer.set_visible(False)
             self.dashboard_box.append(self.upcoming_revealer)
             self._upcoming_cache = None
 
@@ -257,6 +262,13 @@ class WatchlistPage(Gtk.Box):
         self._reload_token += 1
         token = self._reload_token
         mode = self._mode
+        # Preserve the viewport across data-driven refreshes; explicit
+        # user actions (mode switches pass force=True) start fresh.
+        self._restore_y = (
+            scroll_restore.capture(self.scrolled)
+            if not force and scroll_restore.had_content(self.scrolled)
+            else 0.0
+        )
         self._clear()
         self._items = []
         self._show_skeleton(4)
@@ -454,6 +466,7 @@ class WatchlistPage(Gtk.Box):
 
         if not entries:
             self.upcoming_revealer.set_reveal_child(False)
+            self.upcoming_revealer.set_visible(False)
             self.upcoming_section[0].set_visible(False)
             return False
 
@@ -465,6 +478,7 @@ class WatchlistPage(Gtk.Box):
 
         if not passed:
             self.upcoming_revealer.set_reveal_child(False)
+            self.upcoming_revealer.set_visible(False)
             self.upcoming_section[0].set_visible(False)
             return False
 
@@ -485,6 +499,7 @@ class WatchlistPage(Gtk.Box):
             cards.append(card)
 
         self.upcoming_section[0].set_visible(True)
+        self.upcoming_revealer.set_visible(True)
         self.upcoming_revealer.set_reveal_child(True)
         # Same content motion as every other card group — no cascade.
         rise_fade_in(cards, CONTENT_MS, CONTENT_PX)
@@ -530,6 +545,17 @@ class WatchlistPage(Gtk.Box):
             movies = []
             shows = self._dicts_to_items(self.user_repo.get_watchlist("show"))
 
+        # Include shows the user is actively watching (has watched episodes)
+        # even if they're not explicitly on the watchlist.
+        if mode != "movies":
+            existing_ids = {s.tmdb_id for s in shows}
+            watching = self._dicts_to_items(
+                self.user_repo.get_currently_watching_shows()
+            )
+            for w in watching:
+                if w.tmdb_id not in existing_ids:
+                    shows.append(w)
+
         hide_unreleased = self._hide_unreleased_enabled()
         if hide_unreleased:
             movies = [m for m in movies
@@ -539,6 +565,20 @@ class WatchlistPage(Gtk.Box):
 
         movies = [i for i in movies if i.tmdb_id not in watched_movie_ids]
         shows = [i for i in shows if i.tmdb_id not in fully_watched_show_ids]
+
+        # Hide caught-up ongoing shows with no upcoming episodes within window
+        if self._hide_caught_up and self.win.settings.get_boolean(
+            "hide-shows-no-upcoming-episodes"
+        ):
+            window = self.win.settings.get_int("hide-shows-upcoming-window") or 14
+            hidden = set()
+            for s in shows:
+                if watched_state._should_hide_show(
+                    self.user_repo, self.metadata_service, s.tmdb_id, window
+                ):
+                    hidden.add(s.tmdb_id)
+            shows = [s for s in shows if s.tmdb_id not in hidden]
+
         return movies, shows
 
     def _early_badges(self, movies, shows):
@@ -725,12 +765,21 @@ class WatchlistPage(Gtk.Box):
                 section[0].set_visible(False)
 
         if not cards:
-            empty = Gtk.Label(label=self._empty_label, margin_top=8)
-            empty.add_css_class("dim-label")
-            empty.set_xalign(0)
-            self._empty_label_widget = empty
-            self.dashboard_box.append(empty)
-            rise_fade_in([empty], CONTENT_MS, CONTENT_PX)
+            empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
+                                halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER, vexpand=True)
+            empty_box.set_margin_top(48)
+            icon = Gtk.Image(icon_name="view-list-symbolic", pixel_size=48)
+            icon.add_css_class("dimmed")
+            empty_box.append(icon)
+            title = Gtk.Label(label=getattr(self, "_empty_label", "Nothing here yet"))
+            title.add_css_class("title-3")
+            empty_box.append(title)
+            subtitle = Gtk.Label(label=getattr(self, "_empty_subtitle", "Add shows and movies from search or detail pages"))
+            subtitle.add_css_class("dimmed")
+            empty_box.append(subtitle)
+            self._empty_label_widget = empty_box
+            self.dashboard_box.append(empty_box)
+            rise_fade_in([empty_box], CONTENT_MS, CONTENT_PX)
         elif self._revealed:
             # page already visible (filter/mode repopulate): one uniform
             # rise-fade on every page with genre chips; section titles
@@ -739,6 +788,9 @@ class WatchlistPage(Gtk.Box):
         # first load: no stagger — the unified page reveal covers it
 
         self._reveal_page()
+        if getattr(self, "_restore_y", 0.0) > 0.0:
+            scroll_restore.restore(self.scrolled, self._restore_y)
+            self._restore_y = 0.0
         self.movies_grid.queue_resize()
         self.shows_grid.queue_resize()
         return False
@@ -770,10 +822,13 @@ class WatchlistPage(Gtk.Box):
 
     def _show_error(self, msg):
         self._clear()
-        lbl = Gtk.Label(label=f"Error: {msg}", margin_top=24)
-        self._empty_label_widget = lbl
-        self.dashboard_box.append(lbl)
-        rise_fade_in([lbl], CONTENT_MS, CONTENT_PX)
+        error_row = make_error_row(
+            f"Error: {msg}",
+            on_retry=lambda: self._load(force=True),
+        )
+        self._empty_label_widget = error_row
+        self.dashboard_box.append(error_row)
+        rise_fade_in([error_row], CONTENT_MS, CONTENT_PX)
         self._reveal_page()
         return False
 

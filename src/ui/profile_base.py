@@ -12,8 +12,9 @@ from types import SimpleNamespace
 
 from . import page_reveal
 from . import poster
+from . import scroll_restore
 from .anim import CONTENT_MS, CONTENT_PX, animations_enabled, rise_fade_in
-from .media_card import config_grid
+from .media_card import config_grid, PAGE_GUTTER_PX
 
 
 def _format_duration(total_minutes):
@@ -48,7 +49,7 @@ def _animate_stat_value(label, target):
 
 def _make_empty_label():
     empty = Gtk.Label(label="No ratings yet")
-    empty.add_css_class("dim-label")
+    empty.add_css_class("dimmed")
     empty.add_css_class("title-4")
     empty.set_halign(Gtk.Align.CENTER)
     empty.set_margin_top(16)
@@ -75,8 +76,8 @@ class ProfileBase(Gtk.Box):
 
         clamp = Adw.Clamp(maximum_size=1400)
         clamp.set_tightening_threshold(900)
-        clamp.set_margin_start(28)
-        clamp.set_margin_end(28)
+        clamp.set_margin_start(PAGE_GUTTER_PX)
+        clamp.set_margin_end(PAGE_GUTTER_PX)
         clamp.set_margin_top(32)
         clamp.set_margin_bottom(32)
 
@@ -115,6 +116,7 @@ class ProfileBase(Gtk.Box):
         scrolled.set_vexpand(True)
         scrolled.set_child(clamp)
         self.append(scrolled)
+        self.scrolled = scrolled
         base_reveal = page_reveal.arm_launch_reveal(
             self, settle_fn=poster.pending_loads)
         self._revealed = False
@@ -130,6 +132,11 @@ class ProfileBase(Gtk.Box):
     def _load(self):
         self._reload_gen += 1
         gen = self._reload_gen
+        # Refreshes keep the viewport; the first load starts at the top.
+        self._restore_y = (
+            scroll_restore.capture(self.scrolled)
+            if scroll_restore.had_content(self.scrolled) else 0.0
+        )
         GLib.Thread.new("profile", self._fetch, gen)
 
     def _build_sagas(self):
@@ -196,7 +203,7 @@ class ProfileBase(Gtk.Box):
         name.set_halign(Gtk.Align.START)
         name_box.append(name)
         subtitle = Gtk.Label(label="Offline Mode")
-        subtitle.add_css_class("dim-label")
+        subtitle.add_css_class("dimmed")
         subtitle.set_halign(Gtk.Align.START)
         name_box.append(subtitle)
         header.append(name_box)
@@ -234,7 +241,7 @@ class ProfileBase(Gtk.Box):
 
         icon = Gtk.Image(icon_name=icon_name)
         icon.set_pixel_size(24)
-        icon.add_css_class("dim-label")
+        icon.add_css_class("dimmed")
         card.append(icon)
 
         val = Gtk.Label(label="0")
@@ -295,6 +302,9 @@ class ProfileBase(Gtk.Box):
             self._populate_reviewed(rated)
             self._populate_sagas(watched)
             self._reveal_page()
+            if getattr(self, "_restore_y", 0.0) > 0.0:
+                scroll_restore.restore(self.scrolled, self._restore_y)
+                self._restore_y = 0.0
             return False
 
         if first_load and animations_enabled():

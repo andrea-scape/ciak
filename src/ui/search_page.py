@@ -9,7 +9,7 @@ from gi.repository import Gtk, Adw, GLib
 from ..domain.exceptions import NetworkError
 from . import watched_state
 from .genre_chips import GenreChipsRow, item_genre_names, matches_all
-from .media_card import add_watched_badge, config_grid, make_media_card
+from .media_card import add_watched_badge, config_grid, make_media_card, PAGE_GUTTER_PX
 from . import page_reveal
 from . import poster
 from .anim import (
@@ -19,6 +19,7 @@ from .anim import (
     fade_out_group,
     rise_fade_in,
 )
+from .shared_widgets import make_error_row
 
 
 class SearchPage(Adw.Bin):
@@ -60,8 +61,8 @@ class SearchPage(Adw.Bin):
         clamp.set_tightening_threshold(900)
 
         self.dashboard_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=28)
-        self.dashboard_box.set_margin_start(28)
-        self.dashboard_box.set_margin_end(28)
+        self.dashboard_box.set_margin_start(PAGE_GUTTER_PX)
+        self.dashboard_box.set_margin_end(PAGE_GUTTER_PX)
         self.dashboard_box.set_margin_top(24)
         self.dashboard_box.set_margin_bottom(36)
 
@@ -475,11 +476,20 @@ class SearchPage(Adw.Bin):
                 section[0].set_visible(False)
 
         if not cards:
-            empty = Gtk.Label(label="No results found", margin_top=24)
-            empty.add_css_class("dim-label")
-            empty.set_xalign(0)
-            self.dashboard_box.append(empty)
-            rise_fade_in([empty], CONTENT_MS, CONTENT_PX)
+            empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
+                                halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER, vexpand=True)
+            empty_box.set_margin_top(48)
+            icon = Gtk.Image(icon_name="system-search-symbolic", pixel_size=48)
+            icon.add_css_class("dimmed")
+            empty_box.append(icon)
+            title = Gtk.Label(label="No results found")
+            title.add_css_class("title-3")
+            empty_box.append(title)
+            subtitle = Gtk.Label(label="Try a different search term")
+            subtitle.add_css_class("dimmed")
+            empty_box.append(subtitle)
+            self.dashboard_box.append(empty_box)
+            rise_fade_in([empty_box], CONTENT_MS, CONTENT_PX)
         elif self._revealed:
             # repopulate (new query / filter): same content rise as the
             # other genre-chip pages, titles riding along
@@ -530,9 +540,20 @@ class SearchPage(Adw.Bin):
 
     def _show_error(self, msg):
         self._clear()
-        lbl = Gtk.Label(label=f"Error: {msg}", margin_top=24)
-        self.dashboard_box.append(lbl)
-        rise_fade_in([lbl], CONTENT_MS, CONTENT_PX)
+
+        def _retry():
+            if self._showing_trending or not self._query:
+                self._trending_loaded = False
+                self.play_entrance()
+            else:
+                self._run_search(self._query)
+
+        error_row = make_error_row(
+            f"Error: {msg}",
+            on_retry=_retry,
+        )
+        self.dashboard_box.append(error_row)
+        rise_fade_in([error_row], CONTENT_MS, CONTENT_PX)
         self._reveal_page()
         return False
 

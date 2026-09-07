@@ -1,6 +1,6 @@
 """First-run onboarding state machine. Pure logic, no GTK."""
 
-STEPS = ("welcome", "tmdb", "appearance", "done")
+STEPS = ("welcome", "appearance", "sync", "done")
 
 
 def needs_onboarding(completed: bool) -> bool:
