@@ -1,5 +1,5 @@
 project('ciak',
-  version: '0.1.5',
+  version: '0.1.7',
   license: 'GPL-3.0-or-later',
   meson_version: '>= 1.0.0'
 )

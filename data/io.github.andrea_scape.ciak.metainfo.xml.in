@@ -68,6 +68,18 @@
     <content_attribute id="social-chat">none</content_attribute>
   </content_rating>
   <releases>
+    <release version="0.1.7" date="2026-09-11">
+      <description>
+        <ul>
+          <li>Watchlist grid appears instantly; hiding of caught-up and unreleased titles now happens after the first paint</li>
+          <li>Detail pages show the title, year, and plot right away from local data</li>
+          <li>Search reveals its first results without waiting for posters</li>
+          <li>Unreleased-title checks run in parallel, and network requests fail faster</li>
+          <li>Posters reveal with their info captions once painted, and missing posters are prefetched</li>
+          <li>BETA indicator on development builds</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-08-16">
       <description>
         <ul>
