@@ -442,5 +442,137 @@ class ReturningShowStatusTest(unittest.TestCase):
             Repo(), Meta(), 42))
 
 
+class ShouldHideShowTest(unittest.TestCase):
+    """should_hide_show: caught-up shows hide when ended or with nothing
+    airing inside the upcoming window, and the result memoizes."""
+
+    def setUp(self):
+        self.today = datetime.date.today()
+        watched_state._show_hide_memo.clear()
+        watched_state._caught_up_memo.clear()
+        watched_state._fully_watched_memo.clear()
+
+    def _repo(self, watched):
+        class Repo:
+            data_version = 0
+
+            def get_watched_episodes_for_show(self, tmdb_id):
+                return set(watched)
+
+        return Repo()
+
+    def _meta(self, episodes, status="Ended", next_air=None):
+        return _FakeMetadata(episodes, next_air=next_air, status=status)
+
+    def _aired(self):
+        return [(1, 1, _iso(self.today - datetime.timedelta(days=7)))]
+
+    def test_ended_caught_up_show_hides(self):
+        self.assertTrue(watched_state.should_hide_show(
+            self._repo({(1, 1)}), self._meta(self._aired(), status="Ended"), 5))
+
+    def test_ongoing_with_upcoming_episode_in_window_kept(self):
+        eps = self._aired() + [
+            (1, 2, _iso(self.today + datetime.timedelta(days=3)))
+        ]
+        meta = self._meta(eps, status="Returning",
+                          next_air=_iso(self.today + datetime.timedelta(days=3)))
+        self.assertFalse(watched_state.should_hide_show(
+            self._repo({(1, 1)}), meta, 5))
+
+    def test_ongoing_with_next_episode_beyond_window_hides(self):
+        meta = self._meta(self._aired(), status="Returning",
+                          next_air=_iso(self.today + datetime.timedelta(days=30)))
+        self.assertTrue(watched_state.should_hide_show(
+            self._repo({(1, 1)}), meta, 5))
+
+    def test_no_next_air_hides(self):
+        meta = self._meta(self._aired(), status="Returning", next_air=None)
+        self.assertTrue(watched_state.should_hide_show(
+            self._repo({(1, 1)}), meta, 5))
+
+    def test_not_caught_up_never_hides(self):
+        eps = self._aired() + [
+            (1, 2, _iso(self.today - datetime.timedelta(days=1)))
+        ]
+        self.assertFalse(watched_state.should_hide_show(
+            self._repo({(1, 1)}), self._meta(eps, status="Ended"), 5))
+
+    def test_window_override_respected(self):
+        meta = self._meta(self._aired(), status="Returning",
+                          next_air=_iso(self.today + datetime.timedelta(days=10)))
+        self.assertFalse(watched_state.should_hide_show(
+            self._repo({(1, 1)}), meta, 5, window_days=14))
+        self.assertTrue(watched_state.should_hide_show(
+            self._repo({(1, 1)}), meta, 5, window_days=5))
+
+    def test_memoized_without_recompute(self):
+        calls = []
+        orig = watched_state._compute_is_show_caught_up
+
+        def counting(_ur, _ms, show_id):
+            calls.append(show_id)
+            return True
+
+        watched_state._compute_is_show_caught_up = counting
+        try:
+            r1 = watched_state.should_hide_show(
+                self._repo({(1, 1)}), self._meta(self._aired()), 5)
+            r2 = watched_state.should_hide_show(
+                self._repo({(1, 1)}), self._meta(self._aired()), 5)
+            self.assertTrue(r1)
+            self.assertTrue(r2)
+            self.assertEqual(len(calls), 1)
+        finally:
+            watched_state._compute_is_show_caught_up = orig
+            watched_state._show_hide_memo.clear()
+
+
+class ShouldHideShowIdsTest(unittest.TestCase):
+    """should_hide_show_ids fans out and survives mixed verdicts."""
+
+    def setUp(self):
+        watched_state._show_hide_memo.clear()
+        watched_state._caught_up_memo.clear()
+        watched_state._fully_watched_memo.clear()
+
+    def _repo(self, watched):
+        today = datetime.date.today()
+
+        class Repo:
+            data_version = 0
+
+            def get_watched_episodes_for_show(self, tmdb_id):
+                return set(watched.get(tmdb_id, ()))
+
+        return Repo()
+
+    def test_fan_out_returns_only_hidden_ids(self):
+        today = datetime.date.today()
+        last_week = _iso(today - datetime.timedelta(days=7))
+        close_air = _iso(today + datetime.timedelta(days=3))
+
+        class Meta:
+            def get_show_seasons(self, tmdb_id):
+                if tmdb_id == 1:
+                    return [SimpleNamespace(season_number=1)]
+                return []
+
+            def get_season_episodes(self, tmdb_id, season_number):
+                return [SimpleNamespace(
+                    season_number=1, episode_number=1, air_date=last_week)]
+
+            def get_show(self, tmdb_id):
+                if tmdb_id == 1:
+                    return SimpleNamespace(status="Ended", next_episode_air_date=None)
+                return SimpleNamespace(status="Returning",
+                                       next_episode_air_date=close_air)
+
+        repo = self._repo({1: {(1, 1)}, 2: {(1, 1)}})
+        result = watched_state.should_hide_show_ids(
+            repo, Meta(), [1, 2, 3], window_days=5)
+        self.assertEqual(result, {1})
+
+
 if __name__ == "__main__":
     unittest.main()

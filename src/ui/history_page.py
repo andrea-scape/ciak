@@ -57,6 +57,9 @@ class HistoryPage(WatchlistPage):
         super().__init__(win, user_repo, metadata_service, main_page)
         self._hide_caught_up = False
 
+    def _get_items_unfiltered(self, mode):
+        return self._get_items(mode)
+
     def _get_items(self, mode):
         if mode in ("all", "movies"):
             movies = self._dicts_to_items(self.user_repo.get_watched_list("movie"))

@@ -11,7 +11,6 @@ from . import watched_state
 from .genre_chips import GenreChipsRow, item_genre_names, matches_all
 from .media_card import add_watched_badge, config_grid, make_media_card, PAGE_GUTTER_PX
 from . import page_reveal
-from . import poster
 from .anim import (
     CONTENT_MS,
     CONTENT_PX,
@@ -32,8 +31,7 @@ class SearchPage(Adw.Bin):
         self.metadata_service = metadata_service
         self.main_page = main_page
         self.add_css_class("ciak-dashboard")
-        base_reveal = page_reveal.arm_launch_reveal(
-            self, settle_fn=poster.pending_loads)
+        base_reveal = page_reveal.arm_launch_reveal(self)
         self._revealed = False
 
         def _reveal_page():

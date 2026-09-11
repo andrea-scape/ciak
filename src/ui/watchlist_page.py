@@ -8,6 +8,7 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gtk, Adw, GLib
 
 from types import SimpleNamespace
+from functools import partial
 
 from ..domain.exceptions import NetworkError
 from ..domain.models import Episode
@@ -17,6 +18,7 @@ from .media_card import add_watched_badge, config_grid, make_media_card, PAGE_GU
 from . import scroll_restore
 from . import page_reveal
 from . import poster
+
 from .anim import (
     CONTENT_MS,
     CONTENT_PX,
@@ -61,7 +63,7 @@ class WatchlistPage(Gtk.Box):
         self._added_attr = getattr(self, "_added_attr", "added_at")
         self._empty_label = getattr(self, "_empty_label", "Your watchlist is empty")
         self._sort_labels = getattr(
-            self, "_sort_labels", ["Recently Added", "Release Date"]
+            self, "_sort_labels", ["Recently Modified", "Release Date"]
         )
 
         self._filter_query = ""
@@ -155,8 +157,10 @@ class WatchlistPage(Gtk.Box):
 
         # Single launch reveal: the whole dashboard starts hidden and fades
         # in as one unit on first populate (or via the safety timeout).
+        # Never gated on poster settle — first-load posters pop in on their
+        # own, so the grid becomes visible as soon as the first cards do.
         base_reveal = page_reveal.arm_launch_reveal(
-            self.dashboard_box, settle_fn=poster.pending_loads)
+            self.dashboard_box, settle_fn=None)
         self._revealed = False
 
         def _reveal_page():
@@ -220,6 +224,18 @@ class WatchlistPage(Gtk.Box):
                 0 if i.year is not None else 1,
                 -(i.year or 0)
             ))
+        if self._added_attr == "added_at":
+            # Watchlist: order by the most recent action. Adding the title
+            # and watching an episode are equal citizens of the key.
+            shows = [i for i in items if getattr(i, "media_type", "") == "show"]
+            latest = {
+                s.tmdb_id: self.user_repo.get_latest_watched_at_for_show(s.tmdb_id)
+                for s in shows
+            }
+            return sorted(items, key=lambda i: -max(
+                getattr(i, "added_at", 0) or 0,
+                latest.get(i.tmdb_id, 0),
+            ))
         return sorted(items, key=lambda i: -(getattr(i, self._added_attr, 0) or 0))
 
     def _set_mode(self, mode):
@@ -271,7 +287,11 @@ class WatchlistPage(Gtk.Box):
         )
         self._clear()
         self._items = []
-        self._show_skeleton(4)
+        # On reloads the pulse boxes signal activity while the fetch runs;
+        # the first load skips them so cards (arriving in ~100ms chunks)
+        # are what the user sees first.
+        if self._revealed:
+            self._show_skeleton(4)
         GLib.Thread.new("watchlist-load", self._fetch, token, mode)
         if self.upcoming_enabled:
             cached = self._upcoming_cache
@@ -487,7 +507,7 @@ class WatchlistPage(Gtk.Box):
             if ep is None:
                 card = make_media_card(
                     item, self.main_page,
-                    subtitle=f"Movie - {sort_date:%a %-d %b}",
+                    subtitle=f"Movie · {sort_date:%a %-d %b}",
                 )
             else:
                 card = make_media_card(
@@ -529,6 +549,26 @@ class WatchlistPage(Gtk.Box):
             return datetime.date.fromisoformat(date_iso) > datetime.date.today()
         except NetworkError:
             return False
+
+    def _unreleased_ids(self, items, media_type):
+        from concurrent.futures import as_completed
+
+        from ..threads import submit as _submit_worker
+
+        ids = [it.tmdb_id for it in items]
+        if not ids:
+            return set()
+
+        def _check(tmdb_id):
+            return tmdb_id if self._is_unreleased(tmdb_id, media_type) else None
+
+        futures = {_submit_worker(_check, sid): sid for sid in ids}
+        found = set()
+        for fut in as_completed(futures):
+            res = fut.result()
+            if res is not None:
+                found.add(res)
+        return found
 
     def _get_items(self, mode):
         """Return (movies, shows) for the current mode. Subclasses override."""
@@ -573,12 +613,40 @@ class WatchlistPage(Gtk.Box):
             window = self.win.settings.get_int("hide-shows-upcoming-window") or 14
             hidden = set()
             for s in shows:
-                if watched_state._should_hide_show(
+                if watched_state.should_hide_show(
                     self.user_repo, self.metadata_service, s.tmdb_id, window
                 ):
                     hidden.add(s.tmdb_id)
             shows = [s for s in shows if s.tmdb_id not in hidden]
 
+        return movies, shows
+
+    def _get_items_unfiltered(self, mode):
+        """Local-data item list for the first render: no network-gated
+        filters (unreleased / caught-up hiding run post-render instead).
+        Watched-movie exclusion stays since it's pure local data."""
+        watched_movie_ids = self.user_repo.get_watched_ids("movie")
+
+        if mode == "all":
+            movies = self._dicts_to_items(self.user_repo.get_watchlist("movie"))
+            shows = self._dicts_to_items(self.user_repo.get_watchlist("show"))
+        elif mode == "movies":
+            movies = self._dicts_to_items(self.user_repo.get_watchlist("movie"))
+            shows = []
+        else:
+            movies = []
+            shows = self._dicts_to_items(self.user_repo.get_watchlist("show"))
+
+        if mode != "movies":
+            existing_ids = {s.tmdb_id for s in shows}
+            watching = self._dicts_to_items(
+                self.user_repo.get_currently_watching_shows()
+            )
+            for w in watching:
+                if w.tmdb_id not in existing_ids:
+                    shows.append(w)
+
+        movies = [i for i in movies if i.tmdb_id not in watched_movie_ids]
         return movies, shows
 
     def _early_badges(self, movies, shows):
@@ -612,7 +680,7 @@ class WatchlistPage(Gtk.Box):
 
     def _fetch(self, token, mode):
         try:
-            movies, shows = self._get_items(mode)
+            movies, shows = self._get_items_unfiltered(mode)
             early_ids = self._early_badges(movies, shows)
             # Remember badge sets so filter/sort repopulates can rebuild
             # cards without losing their green ticks.
@@ -622,6 +690,12 @@ class WatchlistPage(Gtk.Box):
             late_ids = self._late_badges(movies, shows)
             if late_ids:
                 GLib.idle_add(self._apply_late_badges, token, late_ids)
+            # Run the "hides this title" checks off the render path: the
+            # grid is already queued, so slow metadata never blocks it.
+            # Only the watchlist has this concept — other pages (history)
+            # keep their filtering inside _get_items.
+            if self._hide_caught_up or self._hide_unreleased_enabled():
+                self._late_hidden(token, movies, shows)
         except sqlite3.Error as e:
             GLib.idle_add(self._show_error, str(e))
         except Exception as e:
@@ -629,6 +703,78 @@ class WatchlistPage(Gtk.Box):
             # its skeleton forever.
             print(f"[watchlist] load failed: {e!r}")
             GLib.idle_add(self._show_error, str(e))
+
+    def _late_hidden(self, token, movies, shows):
+        """Compute the network-gated hide sets (unreleased titles, caught-up
+        shows with nothing airing inside the window) after the first render
+        and slim the grids as results land."""
+        def _worker():
+            hidden_movie_ids, hidden_show_ids = self._compute_late_hidden(
+                movies, shows)
+            if hidden_movie_ids or hidden_show_ids:
+                GLib.idle_add(
+                    self._apply_late_hidden, token,
+                    frozenset(hidden_movie_ids), frozenset(hidden_show_ids))
+
+        from ..threads import submit as _submit_worker
+        _submit_worker(_worker)
+
+    def _compute_late_hidden(self, movies, shows):
+        """Hidden-title sets for the unresolved filters: unreleased titles
+        and caught-up shows with nothing airing inside the window. Runs off
+        the render path; returns (hidden_movie_ids, hidden_show_ids)."""
+        hidden_movie_ids = set()
+        hidden_show_ids = set()
+        if self._hide_unreleased_enabled():
+            hidden_movie_ids = self._unreleased_ids(movies, "movie")
+            hidden_show_ids = self._unreleased_ids(shows, "show")
+        hide_caught_up = (self._hide_caught_up and shows
+                          and self.win.settings.get_boolean(
+                              "hide-shows-no-upcoming-episodes"))
+        if hide_caught_up:
+            window = (self.win.settings.get_int("hide-shows-upcoming-window")
+                      or 14)
+            hidden_show_ids |= watched_state.should_hide_show_ids(
+                self.user_repo, self.metadata_service,
+                [s.tmdb_id for s in shows], window_days=window)
+        return hidden_movie_ids, hidden_show_ids
+
+    def _apply_late_hidden(self, token, hidden_movie_ids, hidden_show_ids):
+        """Remove hidden titles from the rendered grids (no reload) and
+        keep _items/chips/section visibility consistent."""
+        if token != self._reload_token:
+            return False
+        children = (self.movies_grid, hidden_movie_ids), (self.shows_grid, hidden_show_ids)
+        removed = False
+        for grid, ids in children:
+            if not ids:
+                continue
+            child = grid.get_first_child()
+            while child:
+                nxt = child.get_next_sibling()
+                button = getattr(child, "get_child", lambda: None)()
+                item = getattr(button, "_media_item", None) if button else None
+                if item is not None and item.tmdb_id in ids:
+                    grid.remove(child)
+                    removed = True
+                child = nxt
+        if not removed:
+            return False
+        self._items = [
+            i for i in self._items
+            if not ((i.media_type == "movie"
+                     and i.tmdb_id in hidden_movie_ids)
+                    or (i.media_type == "show"
+                        and i.tmdb_id in hidden_show_ids))
+        ]
+        self.genre_chips.set_genres(
+            g for it in self._items for g in item_genre_names(it)
+        )
+        for grid, section in ((self.movies_grid, self.movies_section),
+                              (self.shows_grid, self.shows_section)):
+            if grid.get_first_child() is None:
+                section[0].set_visible(False)
+        return False
 
     def _populate(self, token, movies, shows,
                   watched_movie_ids=frozenset(), fully_watched_shows=frozenset()):
@@ -677,10 +823,14 @@ class WatchlistPage(Gtk.Box):
             # ticks so frames stay smooth. The reveal fires on the last
             # chunk.
             queue = [("movie", i) for i in movies] + [("show", i) for i in shows]
-            # Sections stay hidden while their grids fill; the finisher
-            # shows exactly the non-empty ones together with their cards.
+            # Sections stay hidden while their grids fill. On the first
+            # load a header appears only when its first poster is
+            # painted (poster-ready callbacks); on repopulates the
+            # finisher shows the non-empty ones together with the cards.
             self.movies_section[0].set_visible(False)
             self.shows_section[0].set_visible(False)
+            self._shown_section_headers = set()
+            self._revealed_early = False
             self._pending_chunk = (token, iter(queue),
                                    watched_movie_ids, fully_watched_shows)
             self._pump_build()
@@ -709,6 +859,9 @@ class WatchlistPage(Gtk.Box):
         if cards is None:
             cards = self._build_cards = []
 
+        movie_ready = partial(self._show_section_header, self.movies_section)
+        show_ready = partial(self._show_section_header, self.shows_section)
+
         built = []
         for _ in range(self._CHUNK_SIZE):
             try:
@@ -719,7 +872,8 @@ class WatchlistPage(Gtk.Box):
             if kind == "movie":
                 card = make_media_card(
                     item, self.main_page,
-                    watched=item.tmdb_id in watched_movie_ids)
+                    watched=item.tmdb_id in watched_movie_ids,
+                    on_poster_ready=movie_ready)
                 self.movies_grid.append(card)
             else:
                 # Read the LIVE badge set, not the snapshot captured at
@@ -730,9 +884,11 @@ class WatchlistPage(Gtk.Box):
                 card = make_media_card(
                     item, self.main_page,
                     watched=(item.tmdb_id in fully_watched_shows
-                             or item.tmdb_id in live_fully))
+                             or item.tmdb_id in live_fully),
+                    on_poster_ready=show_ready)
                 self.shows_grid.append(card)
             built.append(card)
+            card._pre_reveal = not self._revealed
             if self._revealed and animations_enabled():
                 # Repopulate pass: hide AND offset the card BEFORE any
                 # frame can paint it, so the delayed rise-fade never
@@ -742,6 +898,13 @@ class WatchlistPage(Gtk.Box):
                 card.set_opacity(0.0)
 
         cards.extend(built)
+
+        if not self._revealed and built:
+            # First load: reveal right after the first batch renders so the
+            # dashboard is visible immediately; the rest of the grid fills
+            # in as chunks pump, without waiting for posters to settle.
+            self._revealed_early = True
+            self._reveal_page()
 
         if self._pending_chunk is not None:
             if schedule:
@@ -753,16 +916,20 @@ class WatchlistPage(Gtk.Box):
         self.genre_chips.set_genres(
             g for it in self._items for g in item_genre_names(it)
         )
-        # Show exactly the sections that have content — titles never
-        # precede their first cards.
+        # Repopulates show exactly the sections that have content — titles
+        # never precede their first cards. On the first load the headers
+        # stay hidden here: the poster-ready callback (first painted
+        # poster) is what reveals each one, so a header can never outrun
+        # its posters.
         sections = []
+        first_load = getattr(self, "_revealed_early", False)
         for grid, section in ((self.movies_grid, self.movies_section),
                               (self.shows_grid, self.shows_section)):
-            if grid.get_first_child() is not None:
+            if grid.get_first_child() is None:
+                section[0].set_visible(False)
+            elif self._revealed and not first_load:
                 section[0].set_visible(True)
                 sections.append(section[0])
-            else:
-                section[0].set_visible(False)
 
         if not cards:
             empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
@@ -781,10 +948,20 @@ class WatchlistPage(Gtk.Box):
             self.dashboard_box.append(empty_box)
             rise_fade_in([empty_box], CONTENT_MS, CONTENT_PX)
         elif self._revealed:
-            # page already visible (filter/mode repopulate): one uniform
-            # rise-fade on every page with genre chips; section titles
-            # ride along so they land with their cards
-            rise_fade_in(sections + cards, CONTENT_MS, CONTENT_PX)
+            # page already visible: one uniform rise-fade on every page
+            # with genre chips; section titles ride along so they land
+            # with their cards
+            if getattr(self, "_revealed_early", False):
+                # First load revealed after chunk one: only cards hidden
+                # since then need the rise-fade; the first batch stays
+                # put (no double flash). Headers pop with their first
+                # painted poster, so they are not animated here.
+                rise_fade_in(
+                    [c for c in cards
+                     if not getattr(c, "_pre_reveal", False)],
+                    CONTENT_MS, CONTENT_PX)
+            else:
+                rise_fade_in(sections + cards, CONTENT_MS, CONTENT_PX)
         # first load: no stagger — the unified page reveal covers it
 
         self._reveal_page()
@@ -799,6 +976,19 @@ class WatchlistPage(Gtk.Box):
         """Synchronously finish any pending card building (tests)."""
         while getattr(self, "_pending_chunk", None) is not None:
             self._pump_build(schedule=False)
+
+    def _show_section_header(self, section):
+        """Reveal a section header the first time one of its cards paints
+        its poster (or its safety timeout fires). Idempotent per section;
+        resets every load in _build."""
+        shown = getattr(self, "_shown_section_headers", None)
+        if shown is None:
+            shown = self._shown_section_headers = set()
+        header = section[0]
+        if header in shown:
+            return
+        shown.add(header)
+        header.set_visible(True)
 
     def _repopulate(self):
         """Re-sort and re-display items without re-fetching. Badge sets

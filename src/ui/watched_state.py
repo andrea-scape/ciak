@@ -26,10 +26,40 @@ _LOGIC_VERSION = "v2"
 _HIDE_WINDOW_DAYS_DEFAULT = 14
 
 
-def _should_hide_show(user_repo, metadata_service, show_id, window_days=None) -> bool:
-    """Return True if a caught-up show should be hidden from watchlist."""
-    if not _all_aired_episodes_watched(user_repo, metadata_service, show_id):
-        return False
+# Memo for should_hide_show verdicts; the underlying pieces (caught-up
+# verdict, media cache) are durable, so this only smooths repeated
+# repopulates within a session.
+_SHOW_HIDE_MEMO_TTL = 300
+_show_hide_memo: dict = {}
+
+
+def should_hide_show(user_repo, metadata_service, show_id, window_days=None) -> bool:
+    """True when a caught-up show should hide from the watchlist: fully
+    current AND (show ended/canceled OR nothing airing within the
+    upcoming window). The expensive caught-up check is memoized and
+    persisted (see is_show_caught_up); get_show comes from the media
+    cache, so this is ~0ms once either has been fetched."""
+    window = window_days or _HIDE_WINDOW_DAYS_DEFAULT
+    key = (show_id, window)
+    now = time.monotonic()
+    hit = _show_hide_memo.get(key)
+    if hit is not None and now < hit[0]:
+        return hit[1]
+    if not is_show_caught_up(user_repo, metadata_service, show_id):
+        result = False
+    else:
+        try:
+            result = _window_status_rule(metadata_service, show_id, window)
+        except NetworkError:
+            result = False
+    _show_hide_memo[key] = (now + _SHOW_HIDE_MEMO_TTL, result)
+    return result
+
+
+def _window_status_rule(metadata_service, show_id, window_days):
+    """The non-watched half of the caught-up hide rule: hide once the
+    show has ended/canceled or its next episode airs beyond the window.
+    Callers catch NetworkError."""
     show = metadata_service.get_show(show_id)
     status = (getattr(show, "status", None) or "").strip().lower()
     if status in _ENDED_STATUSES:
@@ -39,34 +69,21 @@ def _should_hide_show(user_repo, metadata_service, show_id, window_days=None) ->
         return True
     try:
         air = datetime.date.fromisoformat(next_air)
-        window = window_days or _HIDE_WINDOW_DAYS_DEFAULT
-        return air > datetime.date.today() + datetime.timedelta(days=window)
+        return air > datetime.date.today() + datetime.timedelta(days=window_days)
     except ValueError:
         return True
 
 
-def _all_aired_episodes_watched(user_repo, metadata_service, show_id) -> bool:
-    """Check if all aired episodes of a show are watched."""
-    watched = user_repo.get_watched_episodes_for_show(show_id)
-    if not watched:
-        return False
-    seasons = metadata_service.get_show_seasons(show_id)
-    today = datetime.date.today()
-    for season in seasons:
-        if season.season_number <= 0:
-            continue
-        episodes = metadata_service.get_season_episodes(show_id, season.season_number)
-        for ep in episodes:
-            if ep.air_date:
-                try:
-                    air = datetime.date.fromisoformat(ep.air_date)
-                except ValueError:
-                    continue
-                if air > today:
-                    continue
-                if (ep.season_number, ep.episode_number) not in watched:
-                    return False
-    return True
+def should_hide_show_ids(user_repo, metadata_service, candidate_ids,
+                         window_days=None, on_result=None):
+    """Show ids that should be hidden from the watchlist, fanned out
+    across the fetch pool so one slow show can't stall the rest."""
+    return _fan_out_checks(
+        user_repo, metadata_service, candidate_ids,
+        (lambda user_repo, metadata_service, sid:
+         should_hide_show(user_repo, metadata_service, sid, window_days)),
+        on_result=on_result,
+    )
 
 
 def _verdict_max_age(user_repo, show_id):

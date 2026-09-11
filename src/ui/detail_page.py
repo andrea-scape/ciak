@@ -301,7 +301,19 @@ class DetailPage(Gtk.Box):
         content_box.append(self.cast_section)
         content_box.append(self.related_section)
 
+        self._paint_placeholder_hero()
 
+    def _paint_placeholder_hero(self):
+        item = self.item
+        title = getattr(item, "title", None)
+        year = getattr(item, "year", None)
+        overview = getattr(item, "overview", None)
+        if title:
+            self.title_label.set_text(title)
+        if year:
+            self.meta_label.set_text(str(year))
+        if overview:
+            self.overview_label.set_text(overview)
 
     def _apply_poster_stacked(self):
         """Small window: move the poster above the info column."""
@@ -346,14 +358,6 @@ class DetailPage(Gtk.Box):
         """Populate the "Where to Watch" section. info is a StreamingInfo
         or None (region missing / no providers) — hides the whole section."""
         GLib.idle_add(self._populate_streaming, info)
-
-    def set_poster(self, texture):
-        """Apply a poster texture loaded by the deferred prefetch phase."""
-        if texture is None:
-            return False
-        self.poster_area._fixed_paintable.set_texture(texture)
-        self.poster_area.set_opacity(1.0)
-        return False
 
     def update_season_episodes(self, season_episodes):
         """Attach prefetched episodes to the season rows and refresh the
@@ -1325,7 +1329,7 @@ class DetailPage(Gtk.Box):
             "confirm_label": "Add to {svc}",
         },
         "remove_watchlist": {
-            "title": "Remove from Watchlist",
+            "title": "Stop Watching",
             "body": ('Remove \u201c{title}\u201d from your watchlist?\n'
                      'Also remove from {svc}? (This clears history and ratings)'),
             "confirm_label": "Remove from {svc}",
@@ -1390,7 +1394,7 @@ class DetailPage(Gtk.Box):
 
     def _set_watchlist_ui(self):
         if self._in_watchlist:
-            self.watchlist_label.set_text("Remove from Watchlist")
+            self.watchlist_label.set_text("Stop Watching")
             self.watchlist_icon.set_from_icon_name("list-remove-symbolic")
             self.watchlist_btn.add_css_class("watchlist-active")
         else:
