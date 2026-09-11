@@ -34,7 +34,7 @@ def _poster_pool() -> ThreadPoolExecutor:
     global _POSTER_EXECUTOR
     if _POSTER_EXECUTOR is None:
         _POSTER_EXECUTOR = ThreadPoolExecutor(
-            max_workers=6, thread_name_prefix="ciak-poster"
+            max_workers=10, thread_name_prefix="ciak-poster"
         )
     return _POSTER_EXECUTOR
 

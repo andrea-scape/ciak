@@ -877,7 +877,7 @@ class BackfillTest(unittest.TestCase):
                 ).fetchone()[0]
                 self.assertTrue(url, f"poster_url missing for {tmdb_id}")
 
-    def test_backfill_fans_out_to_pool_and_skips_refresh(self):
+    def test_backfill_refreshes_metadata_for_missing_posters(self):
         from concurrent.futures import Future
 
         from src.ui import import_dialog
@@ -895,6 +895,8 @@ class BackfillTest(unittest.TestCase):
             with mock.patch.object(
                 import_dialog.threads, "submit", side_effect=fake_submit
             ), mock.patch.object(
+                import_dialog, "_prefetch_poster", return_value=True
+            ), mock.patch.object(
                 service, "get_movie", wraps=service.get_movie
             ) as gm, mock.patch.object(
                 service, "get_show", wraps=service.get_show
@@ -908,9 +910,9 @@ class BackfillTest(unittest.TestCase):
             media_types = {args[1] for _, args in submitted}
             self.assertEqual(media_types, {"movie", "show"})
 
-            # Cache-first reads: no forced refresh sent to the service.
-            self.assertEqual(gm.call_args_list, [mock.call(550)])
-            self.assertEqual(gs.call_args_list, [mock.call(999)])
+            # Metadata is re-fetched so the cached row gains a poster URL.
+            self.assertEqual(gm.call_args_list, [mock.call(550, refresh=True)])
+            self.assertEqual(gs.call_args_list, [mock.call(999, refresh=True)])
 
 
 class TraktExportWatchlistShowTest(unittest.TestCase):

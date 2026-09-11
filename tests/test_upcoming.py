@@ -55,6 +55,9 @@ class _FakeRepo:
     def get_media_item(self, tmdb_id):
         return None
 
+    def get_watchlist_with_dates(self, media_type):
+        return []
+
 
 def _wl_movie(tmdb_id, title="Movie", year=None):
     return dict(tmdb_id=tmdb_id, media_type="movie", added_at=1,
@@ -337,10 +340,10 @@ class UpcomingSubtitleTest(unittest.TestCase):
                 c = c.get_next_sibling()
 
         walk(card)
-        self.assertIn(f"Movie - {(today + datetime.timedelta(days=2)):%a %-d %b}",
+        self.assertIn(f"Movie · {(today + datetime.timedelta(days=2)):%a %-d %b}",
                       texts)
         self.assertNotIn("Movie", [t for t in texts if t != "Movie"
-                                   and not t.startswith("Movie - ")])
+                                   and not t.startswith("Movie · ")])
 
 
 class SwapSectionsTest(unittest.TestCase):

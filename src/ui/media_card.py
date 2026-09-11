@@ -8,7 +8,7 @@ from gi.repository import Gtk, GLib, Gdk, Pango
 
 from .painting import FixedPaintable
 from .poster import POSTER_SLOTS, load_poster
-from .anim import fade_in
+from .anim import CONTENT_MS, fade_in
 
 
 POSTER_W = 160
@@ -65,11 +65,14 @@ def media_type_label(item):
 
 
 def make_media_card(item, main_page=None, footer=None, watched=False,
-                    subtitle=None):
+                    subtitle=None, on_poster_ready=None):
     """Build a poster card matching the watchlist design.
     If footer is provided, it is appended inside the clickable button area.
     If watched is True, a green check badge is overlaid on the poster corner.
-    If subtitle is set, it replaces the default media-type caption."""
+    If subtitle is set, it replaces the default media-type caption.
+    If on_poster_ready is set, it is called (main thread) once this card's
+    poster pixels are actually painted — texture or placeholder — or when
+    the safety timeout fires; sections use it to gate their headers."""
     button = Gtk.Button()
     button.add_css_class("flat")
     button.add_css_class("movie-card-button")
@@ -154,7 +157,30 @@ def make_media_card(item, main_page=None, footer=None, watched=False,
     button._paintable = paintable
     button._picture = picture
     picture._fixed_paintable = paintable
-    load_poster(card_poster_url(item.poster_url), picture)
+    # The info caption column (title + year + type) stays hidden until
+    # this card's poster pixels are actually painted: the completion
+    # callback runs on the main thread the moment a texture or the
+    # clapperboard placeholder is applied. The box stays visible
+    # (opacity only), so card geometry is pinned and revealing never
+    # reflows the flowbox. The same callback also notifies the owning
+    # section (once, guarded by the revealed flag) so a header never
+    # appears before its first poster.
+    def _finish_load():
+        if getattr(info, "_info_revealed", False):
+            return False
+        info._info_revealed = True
+        fade_in(info, CONTENT_MS)
+        if on_poster_ready is not None:
+            on_poster_ready()
+        return False
+
+    info._info_revealed = False
+    info.set_opacity(0.0)
+    load_poster(card_poster_url(item.poster_url), picture,
+                on_load=_finish_load)
+    # Safety net: an exotic decode failure that never reaches on_load
+    # must not leave the card nameless; idempotent via the same guard.
+    GLib.timeout_add(4000, _finish_load)
 
     return button
 

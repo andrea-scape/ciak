@@ -73,11 +73,13 @@ def _prefetch_poster(url: str) -> bool:
 
 
 def _fetch_posters(targets, metadata_service) -> list:
-    """Fetch metadata + posters for a list of (tmdb_id, media_type).
+    """Prefetch posters for media rows that lack one.
 
-    Metadata is read cache-first (no forced refresh) and each title is
-    fetched via the shared worker pool. Never touches GTK. Returns the
-    submitted futures for the caller to drain.
+    Each target is a (tmdb_id, media_type, title, year) tuple produced by
+    get_media_missing_posters.  Metadata is re-fetched (cache miss forced)
+    so the cached row gains a poster URL, then the poster is downloaded
+    into the on-disk cache.  Never touches GTK.  Returns the submitted
+    futures for the caller to drain.
     """
     def _one(tmdb_id, media_type):
         try:
@@ -90,7 +92,7 @@ def _fetch_posters(targets, metadata_service) -> list:
             pass
 
     return [threads.submit(_one, tmdb_id, media_type)
-            for tmdb_id, media_type in targets]
+            for tmdb_id, media_type, _title, _year in targets]
 
 
 def backfill_missing_posters(repository, metadata_service,

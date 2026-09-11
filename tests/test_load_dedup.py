@@ -8,6 +8,7 @@ freshly painted cards and replays the entrance animation.
 import sys
 import types
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 if "src.config" not in sys.modules:
@@ -36,6 +37,9 @@ class _FakeRepo:
     def get_watched_show_ids(self):
         return set()
 
+    def get_currently_watching_shows(self):
+        return []
+
 
 class _FakeMetadata:
     def get_movie(self, tmdb_id):
@@ -45,9 +49,18 @@ class _FakeMetadata:
         raise AssertionError("not used")
 
 
+class _Win:
+    settings = SimpleNamespace(
+        get_boolean=lambda k: False,
+        get_string=lambda k: "",
+        get_int=lambda k: 14,
+        get_int64=lambda k: 0,
+    )
+
+
 def _make_page():
     with mock.patch("gi.repository.GLib.Thread.new"):
-        page = WatchlistPage(object(), _FakeRepo(), _FakeMetadata(), None)
+        page = WatchlistPage(_Win(), _FakeRepo(), _FakeMetadata(), None)
     page.upcoming_enabled = False
     return page
 
@@ -84,14 +97,17 @@ class LoadDedupTest(unittest.TestCase):
     def test_mode_change_fade_uses_force(self):
         page = _make_page()
         page._load()
-        # Simulate what _fade_out_then_load does after its fade completes.
+        # The mode-change fade's completion callback issues a forced load
+        # (as _fade_out_then_load does). Forced loads must never be
+        # swallowed by the dedup window — two back-to-back forced loads
+        # each spawn their own fetch.
         with mock.patch("gi.repository.GLib.Thread.new") as tn, \
                 mock.patch.object(page, "_clear"), \
                 mock.patch.object(page, "_show_skeleton"):
-            page._fade_out_then_load()
             page._reload_pending = False
             page._load(force=True)
-        self.assertEqual(tn.call_count, 1)
+            page._load(force=True)
+        self.assertEqual(tn.call_count, 2)
 
 
 if __name__ == "__main__":

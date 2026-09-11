@@ -100,7 +100,7 @@ class RegionDetectionTest(unittest.TestCase):
         ), mock.patch.dict(
             "os.environ", {"LANG": "", "LC_ALL": "", "LC_CTYPE": ""}, clear=True
         ), mock.patch(
-            "src.ui.region.locale.getdefaultlocale",
+            "src.ui.region.locale.getlocale",
             return_value=(None, None),
         ):
             self.assertEqual(detect_region_from_locale(), FALLBACK_REGION)
@@ -109,7 +109,7 @@ class RegionDetectionTest(unittest.TestCase):
         with mock.patch.dict(
             "os.environ", {"LANG": "", "LC_ALL": "", "LC_CTYPE": ""}, clear=True
         ), mock.patch(
-            "src.ui.region.locale.getdefaultlocale",
+            "src.ui.region.locale.getlocale",
             return_value=("it_IT", "UTF-8"),
         ):
             self.assertEqual(detect_region_from_locale(), "IT")
@@ -118,7 +118,7 @@ class RegionDetectionTest(unittest.TestCase):
         with mock.patch.dict(
             "os.environ", {"LANG": "", "LC_ALL": "", "LC_CTYPE": ""}, clear=True
         ), mock.patch(
-            "src.ui.region.locale.getdefaultlocale",
+            "src.ui.region.locale.getlocale",
             return_value=(None, None),
         ), mock.patch(
             "src.ui.region.GLib.get_language_names",
@@ -137,7 +137,7 @@ class RegionDetectionTest(unittest.TestCase):
         with mock.patch.dict(
             "os.environ", {"LANG": "", "LC_ALL": "", "LC_CTYPE": ""}, clear=True
         ), mock.patch(
-            "src.ui.region.locale.getdefaultlocale",
+            "src.ui.region.locale.getlocale",
             return_value=("fr_FR", "UTF-8"),
         ):
             self.assertEqual(streaming_region(settings), "FR")
@@ -146,7 +146,7 @@ class RegionDetectionTest(unittest.TestCase):
         with mock.patch.dict(
             "os.environ", {"LANG": "", "LC_ALL": "", "LC_CTYPE": ""}, clear=True
         ), mock.patch(
-            "src.ui.region.locale.getdefaultlocale",
+            "src.ui.region.locale.getlocale",
             return_value=("it_IT", "UTF-8"),
         ):
             self.assertEqual(streaming_region(None), "IT")

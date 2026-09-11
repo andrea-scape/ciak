@@ -3,6 +3,7 @@ shows disappear from the Watchlist when the setting is on; unknown dates
 never hide a title."""
 
 import sys
+import time
 import types
 import unittest
 import datetime
@@ -37,9 +38,10 @@ class _Settings:
 
 
 class _Repo:
-    def __init__(self, rows_movie, rows_show):
+    def __init__(self, rows_movie, rows_show, latest=None):
         self._rows_movie = rows_movie
         self._rows_show = rows_show
+        self._latest = latest or {}
 
     def get_watchlist(self, media_type):
         return list(self._rows_movie if media_type == "movie"
@@ -53,6 +55,9 @@ class _Repo:
 
     def get_watched_episodes_for_show(self, show_id):
         return set()
+
+    def get_latest_watched_at_for_show(self, show_id):
+        return self._latest.get(show_id, 0)
 
     def get_currently_watching_shows(self):
         return []
@@ -72,9 +77,10 @@ class _Meta:
         return SimpleNamespace(first_air_date=self._s.get(tmdb_id))
 
 
-def _row(tmdb_id, title="T"):
+def _row(tmdb_id, title="T", added_at=0):
     return dict(tmdb_id=tmdb_id, title=title, year=2026,
-                poster_url=None, runtime=None, imdb_id=None)
+                poster_url=None, runtime=None, imdb_id=None,
+                added_at=added_at)
 
 
 class HideUnreleasedTest(unittest.TestCase):
@@ -125,6 +131,64 @@ class HideUnreleasedTest(unittest.TestCase):
             page = WatchlistPage(win, repo, meta, None)
         movies, _shows = page._get_items("all")
         self.assertEqual([m.tmdb_id for m in movies], [9])
+
+
+class WatchlistOrderByActionTest(unittest.TestCase):
+    """Watchlist sorts by the most recent action: watchlist add or an
+    episode watch count equally."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not Gtk.is_initialized():
+            Gtk.init()
+            try:
+                from gi.repository import Adw
+                Adw.init()
+            except TypeError:
+                pass
+
+    def _order(self, shows, latest=None):
+        repo = _Repo(rows_movie=[], rows_show=shows, latest=latest)
+        win = SimpleNamespace(settings=_Settings(False))
+        with mock.patch("gi.repository.GLib.Thread.new"):
+            page = WatchlistPage(win, repo, _Meta(), None)
+            page._sort_by = "added"
+        items = [SimpleNamespace(**dict(r, media_type="show"))
+                 for r in shows]
+        return [i.tmdb_id for i in page._sort_items(items)]
+
+    def test_recent_episode_watch_beats_recent_add(self):
+        now = int(time.time())
+        shows = [
+            _row(10, "Added yesterday", added_at=now - 86400),
+            _row(11, "Added a month ago", added_at=now - 30 * 86400),
+        ]
+        ids = self._order(shows, latest={11: now})
+        self.assertEqual(ids, [11, 10])
+
+    def test_untouched_old_show_sinks_to_the_end(self):
+        now = int(time.time())
+        shows = [
+            _row(20, "Fresh add", added_at=now),
+            _row(21, "Old and untouched", added_at=now - 60 * 86400),
+        ]
+        ids = self._order(shows)
+        self.assertEqual(ids, [20, 21])
+
+    def test_movies_keep_added_order(self):
+        now = int(time.time())
+        repo = _Repo(
+            rows_movie=[_row(30, "Old", added_at=now - 30 * 86400),
+                        _row(31, "New", added_at=now)],
+            rows_show=[],
+        )
+        win = SimpleNamespace(settings=_Settings(False))
+        with mock.patch("gi.repository.GLib.Thread.new"):
+            page = WatchlistPage(win, repo, _Meta(), None)
+            page._sort_by = "added"
+        items = [SimpleNamespace(**dict(r, media_type="movie"))
+                 for r in repo._rows_movie]
+        self.assertEqual([i.tmdb_id for i in page._sort_items(items)], [31, 30])
 
 
 class FirstAirDateMappingTest(unittest.TestCase):

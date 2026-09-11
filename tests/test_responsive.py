@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gtk, Adw, Gio, Gdk, GdkPixbuf
+from gi.repository import Gtk, Adw, Gio, Gdk, GdkPixbuf, GLib
 
 # config.py is generated at build time; provide the bits used at import time.
 _cfg = types.ModuleType("src.config")
@@ -186,8 +186,9 @@ class ResponsiveWindowTest(unittest.TestCase):
         # (2:3) even when the hero is stacked.
         from src.ui.detail_page import DetailPage
         page = DetailPage(object(), FakeUserRepo(), FakeMetadata(), "movie", Movie(tmdb_id=1, title="T"))
+        from src.ui.poster import _make_texture
         pixbuf = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 500, 750)
-        texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+        texture = _make_texture(pixbuf)
         page.populate_hero(
             {
                 "detail": Movie(tmdb_id=1, title="T", runtime=100),

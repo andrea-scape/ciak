@@ -406,6 +406,12 @@ class PreferencesPage(Adw.PreferencesDialog):
         sync_group.set_description("Keep your lists and history the same everywhere")
         page.add(sync_group)
 
+        beta_pill = Gtk.Label(label="BETA")
+        beta_pill.add_css_class("beta-chip-pill")
+        beta_pill.add_css_class("beta-chip")
+        sync_group.set_header_suffix(beta_pill)
+        self._sync_beta_pill = beta_pill
+
         sync_master_row = Adw.SwitchRow()
         sync_master_row.set_title("Enable Cloud Sync")
         sync_master_row.set_subtitle("Turn syncing on or off, and manage the services below")

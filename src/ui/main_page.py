@@ -1,21 +1,15 @@
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gtk, Adw, GLib, Gio, GdkPixbuf, Gdk
+from gi.repository import Gtk, Adw, GLib, Gio
 import getpass
 import threading
-import urllib.request
-import urllib.error
-import tempfile
 import os
 
 from ..domain.exceptions import NetworkError
 from .. import config
-from .. import poster_cache
 from .. import threads
-from .poster import get_mem_pixbuf, put_mem_pixbuf
 from .search_page import SearchPage
 from .watchlist_page import WatchlistPage
 from .history_page import HistoryPage
@@ -1398,15 +1392,6 @@ class MainPage(Adw.Bin):
         try:
             detail = getattr(detail_page, "_detail", None)
 
-            if detail is not None and detail.poster_url:
-                pixbuf = self._download_texture(detail.poster_url)
-                if pixbuf is not None and not getattr(detail_page, "_cancelled", False):
-                    try:
-                        texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-                        GLib.idle_add(detail_page.set_poster, texture)
-                    except GLib.Error:
-                        pass
-
             if media_type == "show":
                 from ..threads import submit as _submit_worker
 
@@ -1512,33 +1497,6 @@ class MainPage(Adw.Bin):
             parent_box.append(skel)
             skels.append(skel)
         return skels
-
-    def _download_texture(self, url):
-        try:
-            pixbuf = get_mem_pixbuf(url)
-            if pixbuf is not None:
-                return pixbuf
-            cached = poster_cache.get(url)
-            if cached:
-                pixbuf = GdkPixbuf.Pixbuf.new_from_file(cached)
-                put_mem_pixbuf(url, pixbuf)
-                return pixbuf
-            req = urllib.request.Request(url, headers={"User-Agent": "Ciak/1.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                raw = resp.read()
-            poster_cache.put(url, raw)
-            tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-            tmp.write(raw)
-            tmp.close()
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file(tmp.name)
-            put_mem_pixbuf(url, pixbuf)
-            try:
-                os.unlink(tmp.name)
-            except OSError:
-                pass
-            return pixbuf
-        except (urllib.error.URLError, OSError, ValueError, GLib.Error):
-            return None
 
     def go_back(self):
         if len(self._nav_stack) <= 1:

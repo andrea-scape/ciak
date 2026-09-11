@@ -103,6 +103,7 @@ class MarkWatchetIdempotencyTest(unittest.TestCase):
                 season_number  INTEGER,
                 episode_number INTEGER,
                 watched_at     INTEGER NOT NULL,
+                is_anime       INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (tmdb_id, media_type, show_tmdb_id, season_number, episode_number)
             );
             CREATE TABLE media_items (
@@ -217,6 +218,7 @@ class WatchedMigrationTest(unittest.TestCase):
                 season_number  INTEGER,
                 episode_number INTEGER,
                 watched_at     INTEGER NOT NULL,
+                is_anime       INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (tmdb_id, media_type, show_tmdb_id, season_number, episode_number)
             );
             CREATE TABLE schema_version (

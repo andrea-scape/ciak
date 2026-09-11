@@ -46,10 +46,10 @@ def detect_region_from_locale() -> str:
         if value:
             candidates.append(value)
     try:
-        lang, _encoding = locale.getdefaultlocale()
+        lang, _encoding = locale.getlocale()
         if lang:
             candidates.append(lang)
-    except (ImportError, ValueError):
+    except (ImportError, ValueError, locale.Error):
         pass
     try:
         names = GLib.get_language_names() or []

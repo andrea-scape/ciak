@@ -297,10 +297,18 @@ class CiakApp(Adw.Application):
                     )
                     toast.set_timeout(8)
                     self.win._toast_overlay.add_toast(toast)
-                # Reload pages so newly-imported items and metadata
-                # (posters, collections, sagas) appear immediately.
+                # Reload pages only when the sync actually changed local
+                # data (new/pushed items, removals, or a poster backfill).
+                # A zero-change background sync must not tear down and
+                # rebuild every page a few seconds after launch.
+                changed = (
+                    status.pulled_added or status.pushed_added
+                    or status.pushed_removed or status.pulled_removed
+                    or status.remote_removed
+                    or (status.backfill_total or 0) > 0
+                )
                 main = getattr(self.win, '_page', None)
-                if main is not None and hasattr(main, 'invalidate_page'):
+                if changed and main is not None and hasattr(main, 'invalidate_page'):
                     for pid in ("watchlist", "history", "diary",
                                 "calendar", "profile"):
                         main.invalidate_page(pid, reload_now=True)

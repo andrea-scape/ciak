@@ -23,11 +23,38 @@ def _key(url):
     return hashlib.sha256(url.encode()).hexdigest() + ".jpg"
 
 
+def _scaled_key(url, w, h):
+    """Thumbnail entries live in the same dir (so get_size/prune/clear and
+    invalidate's siblings stay in one place) under {sha}@{W}x{H}.jpg."""
+    return hashlib.sha256(url.encode()).hexdigest() + f"@{w}x{h}.jpg"
+
+
 def get(url):
     path = os.path.join(_CACHE_DIR, _key(url))
     if os.path.isfile(path):
         return path
     return None
+
+
+def get_scaled(url, w, h):
+    path = os.path.join(_CACHE_DIR, _scaled_key(url, w, h))
+    if os.path.isfile(path):
+        return path
+    return None
+
+
+def put_scaled(url, w, h, data):
+    _ensure_dir()
+    path = os.path.join(_CACHE_DIR, _scaled_key(url, w, h))
+    with _lock:
+        with open(path, "wb") as f:
+            f.write(data)
+    global _last_prune
+    now = time.monotonic()
+    if now - _last_prune > 2.0:
+        _last_prune = now
+        prune(_max_cache_bytes())
+    return path
 
 
 def put(url, data):
@@ -45,10 +72,17 @@ def put(url, data):
 
 
 def invalidate(url):
-    path = os.path.join(_CACHE_DIR, _key(url))
+    """Drop the source file and any pre-scaled thumbnails for this URL."""
+    base = hashlib.sha256(url.encode()).hexdigest()
     with _lock:
-        if os.path.isfile(path):
-            os.unlink(path)
+        try:
+            for name in os.listdir(_CACHE_DIR):
+                if name == (base + ".jpg") or name.startswith(base + "@"):
+                    path = os.path.join(_CACHE_DIR, name)
+                    if os.path.isfile(path):
+                        os.unlink(path)
+        except FileNotFoundError:
+            pass
 
 
 def _max_cache_bytes():

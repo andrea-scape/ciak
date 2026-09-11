@@ -25,8 +25,10 @@ from src.ui.calendar_page import CalendarPage
 
 class _Repo:
     def get_watchlist(self, media_type):
-        return [dict(tmdb_id=1, title="S", year=2024, poster_url=None,
-                     runtime=None, imdb_id=None, genres=None)]
+        return []
+
+    def get_watchlist_with_dates(self, media_type):
+        return []
 
 
 class _Win:

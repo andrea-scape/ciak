@@ -248,7 +248,7 @@ def _apply_placeholder(paintable, picture, on_load, delay_ms):
     GLib.idle_add(
         _apply_paintable, paintable, picture,
         _placeholder_pixbuf(paintable, icon), on_load, delay_ms,
-        priority=GLib.PRIORITY_LOW,
+        priority=GLib.PRIORITY_HIGH_IDLE,
     )
 
 
@@ -264,7 +264,7 @@ def load_poster(url, picture, on_load=None, delay_ms=0):
     image = _MEM_PIXBUF.get(key)
     if image is not None:
         _MEM_PIXBUF.move_to_end(key)
-        GLib.idle_add(_apply_pixbuf, picture, image, on_load, delay_ms, False, priority=GLib.PRIORITY_LOW)
+        GLib.idle_add(_apply_pixbuf, picture, image, on_load, delay_ms, False, priority=GLib.PRIORITY_HIGH_IDLE)
         return
     cached = poster_cache.get(url)
     if cached:
@@ -319,12 +319,12 @@ def _fetch_paintable(url, paintable, picture, on_load, delay_ms):
         _apply_placeholder(paintable, picture, on_load, delay_ms)
 
 
-def _download_paintable(path, paintable, picture, on_load, delay_ms, animate=True):
+def _download_paintable(path, paintable, picture, on_load, delay_ms, animate=False):
     success = False
     with POSTER_SLOTS:
         try:
             pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
-            GLib.idle_add(_apply_paintable, paintable, picture, pixbuf, on_load, delay_ms, animate, priority=GLib.PRIORITY_LOW)
+            GLib.idle_add(_apply_paintable, paintable, picture, pixbuf, on_load, delay_ms, animate, priority=GLib.PRIORITY_HIGH_IDLE)
             success = True
         except GLib.Error:
             pass
@@ -332,9 +332,9 @@ def _download_paintable(path, paintable, picture, on_load, delay_ms, animate=Tru
         _apply_placeholder(paintable, picture, on_load, delay_ms)
 
 
-def _apply_paintable(paintable, picture, pixbuf, on_load, delay_ms, animate=True):
+def _apply_paintable(paintable, picture, pixbuf, on_load, delay_ms, animate=False):
     try:
-        texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+        texture = _make_texture(pixbuf)
         paintable.set_texture(texture)
         if animate:
             if delay_ms > 0:
@@ -371,20 +371,27 @@ def _fetch_worker(url, key, max_w=_DECODE_MAX_W, max_h=_DECODE_MAX_H):
         # Immutable value object — safe to create off the main thread;
         # every picture widget then shares this one GPU-resident copy.
         try:
-            image = Gdk.Texture.new_for_pixbuf(pixbuf)
-        except (GLib.Error, TypeError):
+            image = _make_texture(pixbuf)
+        except (GLib.Error, TypeError, ValueError):
             image = pixbuf
         _mem_put(key, image)
+        # Stamp a pre-scaled thumbnail so later starts skip the
+        # full-size decode entirely. Best-effort; never fatal.
+        try:
+            _ok, tb = pixbuf.save_to_bufferv("jpeg", ["quality"], ["75"])
+            poster_cache.put_scaled(url, max_w, max_h, tb)
+        except (GLib.Error, OSError, ValueError):
+            pass
     for picture, on_load, delay_ms in waiters:
         if image is not None:
             GLib.idle_add(_apply_and_settle, _apply_pixbuf, picture, image,
-                          on_load, delay_ms, priority=GLib.PRIORITY_LOW)
+                          on_load, delay_ms, priority=GLib.PRIORITY_HIGH_IDLE)
         else:
             paintable = getattr(picture, "_fixed_paintable", None)
             if paintable is not None:
                 GLib.idle_add(_apply_and_settle, _apply_placeholder, paintable,
                               picture, on_load, delay_ms,
-                              priority=GLib.PRIORITY_LOW)
+                              priority=GLib.PRIORITY_HIGH_IDLE)
             else:
                 _load_finished()  # nothing to apply; settle immediately
 
@@ -418,21 +425,34 @@ def _decode_bytes(data, max_w=_DECODE_MAX_W, max_h=_DECODE_MAX_H):
 def _decode_cached(url, key, path, picture, on_load, delay_ms,
                    max_w=_DECODE_MAX_W, max_h=_DECODE_MAX_H):
     """Decode a disk-cached poster; the cache file is never deleted."""
-    pixbuf = _decode_file_pixbuf(path, max_w, max_h)
+    pixbuf = None
+    thumb = poster_cache.get_scaled(url, max_w, max_h)
+    if thumb is not None:
+        pixbuf = _decode_file_pixbuf(thumb, max_w, max_h)
+    if pixbuf is None:
+        pixbuf = _decode_file_pixbuf(path, max_w, max_h)
     if pixbuf is not None:
         try:
-            image = Gdk.Texture.new_for_pixbuf(pixbuf)
-        except (GLib.Error, TypeError):
+            image = _make_texture(pixbuf)
+        except (GLib.Error, TypeError, ValueError):
             image = pixbuf
+        if thumb is None:
+            # Stamp a pre-scaled thumbnail so later starts skip the
+            # full-size decode entirely. Best-effort; never fatal.
+            try:
+                _ok, tb = pixbuf.save_to_bufferv("jpeg", ["quality"], ["75"])
+                poster_cache.put_scaled(url, max_w, max_h, tb)
+            except (GLib.Error, OSError, ValueError):
+                pass
         _mem_put(key, image)
         GLib.idle_add(_apply_and_settle, _apply_pixbuf, picture, image,
-                      on_load, delay_ms, False, priority=GLib.PRIORITY_LOW)
+                      on_load, delay_ms, False, priority=GLib.PRIORITY_HIGH_IDLE)
     else:
         paintable = getattr(picture, "_fixed_paintable", None)
         if paintable is not None:
             GLib.idle_add(_apply_and_settle, _apply_placeholder, paintable,
                           picture, on_load, delay_ms,
-                          priority=GLib.PRIORITY_LOW)
+                          priority=GLib.PRIORITY_HIGH_IDLE)
         else:
             _load_finished()  # nothing to apply; settle immediately
 
@@ -449,13 +469,31 @@ def _decode_file_pixbuf(path, max_w=_DECODE_MAX_W, max_h=_DECODE_MAX_H):
             return None
 
 
-def _apply_pixbuf(picture, pixbuf, on_load, delay_ms, animate=True):
+def _make_texture(pixbuf):
+    """Wrap a pixbuf as a Gdk.MemoryTexture. GdkPixbuf stores premultiplied
+    RGBA, so alpha pixbufs map to R8G8B8A8_PREMULTIPLIED; opaque ones upload
+    as R8G8B8. Zero-copy vs the old PNG encode/decode roundtrip."""
+    fmt = (
+        Gdk.MemoryFormat.R8G8B8A8_PREMULTIPLIED
+        if pixbuf.get_has_alpha()
+        else Gdk.MemoryFormat.R8G8B8
+    )
+    return Gdk.MemoryTexture.new(
+        pixbuf.get_width(),
+        pixbuf.get_height(),
+        fmt,
+        GLib.Bytes.new(pixbuf.get_pixels()),
+        pixbuf.get_rowstride(),
+    )
+
+
+def _apply_pixbuf(picture, pixbuf, on_load, delay_ms, animate=False):
     try:
         from gi.repository import Gdk as _Gdk
         if isinstance(pixbuf, _Gdk.Texture):
             texture = pixbuf  # shared cached copy — no conversion
         else:
-            texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+            texture = _make_texture(pixbuf)
         fixed = getattr(picture, "_fixed_paintable", None)
         if fixed is not None:
             fixed.set_texture(texture)
