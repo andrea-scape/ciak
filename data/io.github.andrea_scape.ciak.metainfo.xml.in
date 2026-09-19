@@ -68,6 +68,18 @@
     <content_attribute id="social-chat">none</content_attribute>
   </content_rating>
   <releases>
+    <release version="0.1.8" date="2026-09-19">
+      <description>
+        <ul>
+          <li>The calendar "Upcoming" popover opens reliably: it lists only the releases airing from today onward in the shown month, scrolls when long, adjusts to the window, and its count always matches the releases listed</li>
+          <li>Diary history can be filtered by genre chips drawn from your watched titles</li>
+          <li>Diary month dividers render fully with a floating "month in view" chip, and scrolling no longer re-lays out the page</li>
+          <li>Poster reveal animation animates opacity only, removing the per-frame layout that stuttered dense grids</li>
+          <li>Watchlist, search and collection cards are pinned to their poster width, keeping every grid column even</li>
+          <li>A "Send Test Notification" button and BETA badge appear in the airing-notification preferences; enabling airing notifications checks for due episodes right away</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-09-11">
       <description>
         <ul>
