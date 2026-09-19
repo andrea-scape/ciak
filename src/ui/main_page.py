@@ -10,6 +10,7 @@ import os
 from ..domain.exceptions import NetworkError
 from .. import config
 from .. import threads
+from . import datefmt
 from .search_page import SearchPage
 from .watchlist_page import WatchlistPage
 from .history_page import HistoryPage
@@ -933,33 +934,13 @@ class MainPage(Adw.Bin):
         return False  # one-shot
 
     def _update_last_sync_label(self):
-        import time as _time
         settings = getattr(self.win, "settings", None) if hasattr(self, "win") else None
         if settings is None:
             self._sidebar_sync_label.set_label("")
             return
-        ts = settings.get_int64("sync-last-sync")
-        if ts == 0:
-            self._sidebar_sync_label.set_label("")
-        else:
-            diff = int(_time.time()) - ts
-            if diff < 60:
-                self._sidebar_sync_label.set_label("Synced just now")
-            elif diff < 3600:
-                mins = diff // 60
-                self._sidebar_sync_label.set_label(
-                    f"Synced {mins}m ago" if mins != 1 else "Synced 1m ago"
-                )
-            elif diff < 86400:
-                hours = diff // 3600
-                self._sidebar_sync_label.set_label(
-                    f"Synced {hours}h ago" if hours != 1 else "Synced 1h ago"
-                )
-            else:
-                days = diff // 86400
-                self._sidebar_sync_label.set_label(
-                    f"Synced {days}d ago" if days != 1 else "Synced 1d ago"
-                )
+        self._sidebar_sync_label.set_label(
+            datefmt.format_sync_ago(settings.get_int64("sync-last-sync"))
+        )
 
     def update_connected_services(self):
         """Update the sidebar label showing which services are connected."""
@@ -985,52 +966,12 @@ class MainPage(Adw.Bin):
         self._update_last_sync_label()
         self.update_connected_services()
 
-    def _sync_headerbar(self, page_id):
-        self._pending_headerbar_sync_id = None
-        self._headerbar_generation += 1
-        gen = self._headerbar_generation
+    def _headerbar_transition(self, title, configure):
+        """Fade the title/back/toggle header group to a new page state.
 
-        widgets = [
-            self.content_title_widget,
-            self.back_btn,
-            self.toggle_box,
-        ]
-        currently_visible = [w for w in widgets if w.get_visible()]
-
-        def _apply_and_fade_in():
-            if gen != self._headerbar_generation:
-                return
-
-            self.content_title_widget.set_title(PAGE_TITLES.get(page_id, page_id))
-            self.content_title_widget.set_subtitle("")
-            self.content_header.set_title_widget(self.content_title_widget)
-
-            if page_id == "search":
-                self.back_btn.set_visible(False)
-                self.toggle_box.set_visible(False)
-            elif page_id == "collection":
-                self.content_title_widget.set_title(self._collection_title or "Collection")
-                self.toggle_box.set_visible(False)
-                self.back_btn.set_visible(True)
-            else:
-                self.back_btn.set_visible(False)
-                has_toggle = page_id in PAGES_WITH_TOGGLE
-                self.toggle_box.set_visible(has_toggle)
-                if has_toggle:
-                    page = self._pages.get(page_id)
-                    if page and hasattr(page, "_mode"):
-                        self._sync_toggle(page._mode)
-
-            newly_visible = [w for w in widgets if w.get_visible()]
-            fade_in_group(newly_visible, MICRO_FADE_MS)
-
-        if currently_visible:
-            fade_out_group(currently_visible, 112, _apply_and_fade_in)
-        else:
-            _apply_and_fade_in()
-        return False
-
-    def _sync_headerbar_detail(self, title):
+        ``configure`` runs after the title is applied and decides which of
+        the header widgets end up visible for this page.
+        """
         self._pending_headerbar_sync_id = None
         self._headerbar_generation += 1
         gen = self._headerbar_generation
@@ -1049,8 +990,7 @@ class MainPage(Adw.Bin):
             self.content_title_widget.set_title(title)
             self.content_title_widget.set_subtitle("")
             self.content_header.set_title_widget(self.content_title_widget)
-            self.toggle_box.set_visible(False)
-            self.back_btn.set_visible(True)
+            configure()
 
             newly_visible = [w for w in widgets if w.get_visible()]
             fade_in_group(newly_visible, MICRO_FADE_MS)
@@ -1060,6 +1000,38 @@ class MainPage(Adw.Bin):
         else:
             _apply_and_fade_in()
         return False
+
+    def _sync_headerbar(self, page_id):
+        title = (
+            self._collection_title or "Collection"
+            if page_id == "collection"
+            else PAGE_TITLES.get(page_id, page_id)
+        )
+
+        def _configure():
+            if page_id == "search":
+                self.back_btn.set_visible(False)
+                self.toggle_box.set_visible(False)
+            elif page_id == "collection":
+                self.toggle_box.set_visible(False)
+                self.back_btn.set_visible(True)
+            else:
+                self.back_btn.set_visible(False)
+                has_toggle = page_id in PAGES_WITH_TOGGLE
+                self.toggle_box.set_visible(has_toggle)
+                if has_toggle:
+                    page = self._pages.get(page_id)
+                    if page and hasattr(page, "_mode"):
+                        self._sync_toggle(page._mode)
+
+        return self._headerbar_transition(title, _configure)
+
+    def _sync_headerbar_detail(self, title):
+        def _configure():
+            self.toggle_box.set_visible(False)
+            self.back_btn.set_visible(True)
+
+        return self._headerbar_transition(title, _configure)
 
     def invalidate_page(self, page_id, reload_now=False):
         self._stale_pages.add(page_id)

@@ -7,6 +7,7 @@ so they stay trivially testable; call sites read the flag at render time.
 """
 
 import datetime
+import time
 
 _MONTHS_SHORT = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -55,6 +56,33 @@ def format_weekday_date(d, american=False):
 def format_epoch(ts, american=False):
     """Unix timestamp -> format_date()."""
     return format_date(datetime.date.fromtimestamp(ts), american)
+
+
+def format_sync_ago(ts, never="", short=True):
+    """One-line 'Synced … ago' label for an epoch-second timestamp.
+
+    ``ts == 0`` renders *never* (no sync recorded).  With *short* the
+    units abbreviate ("Synced 5m ago"); otherwise they spell out and
+    pluralize ("Synced 5 minutes ago").  Pure aside from the clock, so
+    it stays trivially testable.
+    """
+    if not ts:
+        return never
+    diff = int(time.time()) - ts
+    if diff < 60:
+        return "Synced just now"
+    if diff < 3600:
+        count, unit = diff // 60, "m"
+    elif diff < 86400:
+        count, unit = diff // 3600, "h"
+    else:
+        count, unit = diff // 86400, "d"
+    if short:
+        return f"Synced {count}{unit} ago"
+    words = {"m": "minute", "h": "hour", "d": "day"}[unit]
+    if count != 1:
+        words += "s"
+    return f"Synced {count} {words} ago"
 
 
 def format_iso(iso, american=False):

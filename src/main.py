@@ -265,8 +265,6 @@ class CiakApp(Adw.Application):
             if prefs is not None and hasattr(prefs, '_update_sync_last_label'):
                 prefs._update_sync_last_label()
 
-            from gi.repository import Adw
-
             if status.state == "error":
                 errors = []
                 for name, res in status.results.items():

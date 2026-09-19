@@ -8,7 +8,7 @@ import threading
 
 from .. import poster_cache
 from .. import config
-from ..theme import apply_theme
+from . import datefmt
 from .export_dialog import show_export_dialog
 from .import_dialog import show_import_dialog
 from .notifications import make_airing_notification
@@ -1081,29 +1081,13 @@ class PreferencesPage(Adw.PreferencesDialog):
                 row.remove_css_class("accent")
 
     def _update_sync_last_label(self):
-        import time as _time
-        ts = self._settings.get_int64("sync-last-sync")
-        if ts == 0:
-            self._sync_last_label.set_label("Never synced")
-        else:
-            diff = int(_time.time()) - ts
-            if diff < 60:
-                self._sync_last_label.set_label("Synced just now")
-            elif diff < 3600:
-                mins = diff // 60
-                self._sync_last_label.set_label(
-                    f"Synced {mins} minute{'s' if mins != 1 else ''} ago"
-                )
-            elif diff < 86400:
-                hours = diff // 3600
-                self._sync_last_label.set_label(
-                    f"Synced {hours} hour{'s' if hours != 1 else ''} ago"
-                )
-            else:
-                 days = diff // 86400
-                 self._sync_last_label.set_label(
-                     f"Synced {days} day{'s' if days != 1 else ''} ago"
-                 )
+        self._sync_last_label.set_label(
+            datefmt.format_sync_ago(
+                self._settings.get_int64("sync-last-sync"),
+                never="Never synced",
+                short=False,
+            )
+        )
         self._refresh_reset_row()
 
     def _show_disconnect_dialog(self, backend_name, display_name, original_subtitle):
