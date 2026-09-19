@@ -1,9 +1,6 @@
 import unittest
 from unittest import mock
 
-import urllib.error
-import urllib.request
-
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -21,8 +18,7 @@ class PaintingFallbackTest(unittest.TestCase):
         # raised "NameError: name 'GLib' is not defined" because the except
         # clause referenced GLib.Error without importing GLib.
         with mock.patch.object(painting.poster_cache, "get", return_value=None), \
-             mock.patch("src.ui.painting.urllib.request.urlopen",
-                        side_effect=urllib.error.URLError("offline")):
+             mock.patch.object(poster, "_download_bytes", return_value=None):
             self.assertIsNone(
                 painting._load_texture_sync("https://example.com/poster.jpg")
             )
