@@ -7,10 +7,6 @@ gi.require_version("Graphene", "1.0")
 from gi.repository import Gtk, Gdk, GdkPixbuf, Graphene, GObject, GLib
 
 from .. import poster_cache
-import urllib.request
-import urllib.error
-import tempfile
-import os
 
 
 class FixedPaintable(GObject.Object, Gdk.Paintable):
@@ -60,22 +56,15 @@ class FixedPaintable(GObject.Object, Gdk.Paintable):
 
 
 def _load_texture_sync(url):
-    try:
-        cached = poster_cache.get(url)
-        if cached:
-            return GdkPixbuf.Pixbuf.new_from_file(cached)
-        req = urllib.request.Request(url, headers={"User-Agent": "Ciak/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = resp.read()
-        poster_cache.put(url, data)
-        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-        tmp.write(data)
-        tmp.close()
-        pixbuf = GdkPixbuf.Pixbuf.new_from_file(tmp.name)
+    from . import poster
+
+    cached = poster_cache.get(url)
+    if cached:
         try:
-            os.unlink(tmp.name)
-        except OSError:
+            return GdkPixbuf.Pixbuf.new_from_file(cached)
+        except (GLib.Error, OSError):
             pass
-        return pixbuf
-    except (urllib.error.URLError, OSError, ValueError, GLib.Error):
+    data = poster._download_bytes(url)
+    if data is None:
         return None
+    return poster._decode_bytes(data)
