@@ -713,11 +713,6 @@ class DiaryPage(Adw.Bin):
         row.append(jump)
         return row
 
-    def _settings_get(self, key, default):
-        if self._win is not None and hasattr(self._win, "settings"):
-            return self._win.settings.get_string(key)
-        return default
-
     @property
     def _mode(self):
         """Headerbar filter protocol: main_page reads this to sync the
@@ -912,10 +907,6 @@ class DiaryPage(Adw.Bin):
                 if top is not None and top <= value:
                     break
         return best
-
-    def _update_tail(self):
-        if self._tail_row is not None:
-            self._remove_tail()
 
     def _append_tail(self):
         row = Gtk.Box(halign=Gtk.Align.CENTER, margin_top=10)

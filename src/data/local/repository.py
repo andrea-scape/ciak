@@ -851,15 +851,6 @@ class LocalMediaRepository:
             episodes_watched=conn.execute(
                 "SELECT COUNT(*) FROM watched_items WHERE media_type='episode'"
             ).fetchone()[0],
-            watchlist_items=conn.execute(
-                "SELECT COUNT(*) FROM watchlist_items"
-            ).fetchone()[0],
-            ratings=conn.execute(
-                "SELECT COUNT(*) FROM ratings"
-            ).fetchone()[0],
-            collection_items=conn.execute(
-                "SELECT COUNT(*) FROM collection_items"
-            ).fetchone()[0],
         )
 
     def get_watchlist_stats(self) -> dict:

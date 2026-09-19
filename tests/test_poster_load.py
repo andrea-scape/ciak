@@ -291,7 +291,7 @@ class MemCacheLRUTest(unittest.TestCase):
         for i in range(self.poster._MEM_MAX):
             self.poster._mem_put(f"u{i}", object())
         # touch the oldest entry — it must survive the next insert
-        self.poster.get_mem_pixbuf("u0")
+        self.poster._MEM_PIXBUF.move_to_end("u0")
         self.poster._mem_put("new", object())
         self.assertIn("u0", self.poster._MEM_PIXBUF)
         self.assertNotIn("u1", self.poster._MEM_PIXBUF)

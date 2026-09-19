@@ -15,8 +15,6 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
-_glib_language_names = getattr(GLib, "get_language_names", None)
-
 FALLBACK_REGION = "IT"
 
 
@@ -71,8 +69,3 @@ def _region_from_string(value: str) -> str | None:
     if match:
         return match.group(1).upper()
     return None
-
-
-def region_label(country_code: str) -> str:
-    """Human label for the preferences dropdown."""
-    return country_code.upper()

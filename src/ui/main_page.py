@@ -922,13 +922,6 @@ class MainPage(Adw.Bin):
             self._sidebar_sync_btn.set_visible(True)
             self._update_last_sync_label()
 
-    def _get_first_syncing_service(self, results):
-        """Get the name of the first backend being synced."""
-        if results:
-            for name in results:
-                return name.title()
-        return "cloud"
-
     def _dismiss_sync_check(self):
         """Fade out checkmark, fade in 'Synced just now' label."""
         self._sidebar_sync_icon.remove_css_class("sync-check")

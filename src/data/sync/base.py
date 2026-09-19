@@ -39,7 +39,6 @@ class SyncResult:
     pushed: int = 0
     pulled: int = 0
     errors: list[str] = field(default_factory=list)
-    duration_ms: int = 0
 
     @property
     def total_items(self) -> int:

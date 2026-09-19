@@ -71,20 +71,6 @@ def put(url, data):
     return path
 
 
-def invalidate(url):
-    """Drop the source file and any pre-scaled thumbnails for this URL."""
-    base = hashlib.sha256(url.encode()).hexdigest()
-    with _lock:
-        try:
-            for name in os.listdir(_CACHE_DIR):
-                if name == (base + ".jpg") or name.startswith(base + "@"):
-                    path = os.path.join(_CACHE_DIR, name)
-                    if os.path.isfile(path):
-                        os.unlink(path)
-        except FileNotFoundError:
-            pass
-
-
 def _max_cache_bytes():
     from . import config
 

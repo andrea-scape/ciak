@@ -144,6 +144,3 @@ class Stats:
     movies_watched: int = 0
     shows_watched: int = 0
     episodes_watched: int = 0
-    watchlist_items: int = 0
-    ratings: int = 0
-    collection_items: int = 0

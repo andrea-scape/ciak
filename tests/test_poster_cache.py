@@ -49,15 +49,6 @@ class PosterCacheTest(unittest.TestCase):
         )
         self.assertIsNone(poster_cache.get_scaled(URL, 161, 241))
 
-    def test_invalidate_removes_base_and_scaled_siblings(self):
-        poster_cache.put(URL, b"jpg")
-        poster_cache.put_scaled(URL, 160, 240, b"a")
-        poster_cache.put_scaled(URL, 320, 480, b"b")
-        poster_cache.invalidate(URL)
-        self.assertIsNone(poster_cache.get(URL))
-        self.assertIsNone(poster_cache.get_scaled(URL, 160, 240))
-        self.assertIsNone(poster_cache.get_scaled(URL, 320, 480))
-
     def test_get_size_counts_scaled_entries(self):
         poster_cache.put(URL, b"12345")
         poster_cache.put_scaled(URL, 160, 240, b"123")

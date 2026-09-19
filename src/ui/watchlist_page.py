@@ -35,10 +35,6 @@ POSTER_W = 160
 POSTER_H = 240
 
 
-def _config_grid(grid):
-    config_grid(grid)
-
-
 class WatchlistPage(Gtk.Box):
     """Dashboard with clamp, sort header, sectioned grids."""
 
@@ -197,7 +193,7 @@ class WatchlistPage(Gtk.Box):
         lbl.set_xalign(0)
         box.append(lbl)
         grid = Gtk.FlowBox()
-        _config_grid(grid)
+        config_grid(grid)
         box.append(grid)
         return box, grid
 
@@ -312,11 +308,6 @@ class WatchlistPage(Gtk.Box):
 
     def _dicts_to_items(self, dicts):
         return [SimpleNamespace(**d) for d in dicts]
-
-    def _is_show_fully_watched(self, show_id):
-        return watched_state.is_show_fully_watched(
-            self.user_repo, self.metadata_service, show_id
-        )
 
     def _get_fully_watched_show_ids(self):
         return watched_state.fully_watched_show_ids(

@@ -77,21 +77,6 @@ def _mem_put(url, pixbuf):
         _MEM_PIXBUF.pop(next(iter(_MEM_PIXBUF)))
 
 
-def get_mem_pixbuf(url):
-    """Return the in-memory decoded pixbuf for url, or None. Safe from any
-    thread (GIL-held dict access) — lets other load paths share this cache.
-    Touches the entry so hot posters are evicted last (LRU)."""
-    pixbuf = _MEM_PIXBUF.get(url)
-    if pixbuf is not None:
-        _MEM_PIXBUF.move_to_end(url)
-    return pixbuf
-
-
-def put_mem_pixbuf(url, pixbuf):
-    """Store a decoded pixbuf in the shared in-memory poster cache."""
-    _mem_put(url, pixbuf)
-
-
 def create_poster(width, height, css_class="poster-image"):
     box = Gtk.Box()
     box.set_size_request(width, height)
