@@ -318,8 +318,7 @@ class SyncEngine:
         return True
 
     def _do_reset(self, backend: SyncBackend, progress_cb=None) -> None:
-        display = {"simkl": "Simkl", "tmdb": "TMDB",
-                   "letterboxd": "Letterboxd"}.get(backend.name, backend.name)
+        display = backend.display_name
         self._status.state = "syncing"
         self._status.results = {}
         self._status.pushed_added = 0
@@ -375,7 +374,6 @@ class SyncEngine:
         if self._repo is None:
             return []
         results = []
-        backend_names = {"simkl": "Simkl", "tmdb": "TMDB", "letterboxd": "Letterboxd"}
         for backend in self._backends:
             key = f"sync-{backend.name}-enabled"
             if not self._settings.get_boolean(key):
@@ -406,7 +404,7 @@ class SyncEngine:
                     label = "Movie" if rem.media_type == "movie" else "Show"
                     title = f"{label} #{rem.tmdb_id}"
                 items.append((title, rem.media_type, rem.tmdb_id))
-            display_name = backend_names.get(backend.name, backend.name)
+            display_name = backend.display_name
             results.append({
                 "backend_name": backend.name,
                 "display_name": display_name,
@@ -557,9 +555,7 @@ class SyncEngine:
 
     def _sync_backend(self, backend: SyncBackend) -> SyncResult:
         result = SyncResult()
-        display = {"simkl": "Simkl", "tmdb": "TMDB", "letterboxd": "Letterboxd"}.get(
-            backend.name, backend.name
-        )
+        display = backend.display_name
 
         # Lazy-load dismissed sigs from DB on first sync run.
         if not self._dismissed_sigs and self._repo is not None:

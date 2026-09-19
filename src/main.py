@@ -21,6 +21,7 @@ from .data.local.cache import MetadataCache
 from .data.tmdb.client import TmdbClient
 from .data.tmdb.service import TmdbMetadataService
 from .data.sync.engine import SyncEngine
+from .data.sync import BACKEND_DISPLAY_NAMES
 from .ui.main_page import MainPage
 from .ui.poster import load_poster
 from .window import MainWindow
@@ -573,8 +574,7 @@ class CiakApp(Adw.Application):
         pulled_total = 0
         imported_total = 0
         for name, res in results.items():
-            label = {"simkl": "Simkl", "tmdb": "TMDB",
-                     "letterboxd": "Letterboxd"}.get(name, name)
+            label = BACKEND_DISPLAY_NAMES.get(name, name)
             parts = []
             pulled = getattr(res, 'pulled', 0) or 0
             imported = getattr(res, 'pulled_added', pulled) or 0
@@ -608,8 +608,7 @@ class CiakApp(Adw.Application):
             err_lines = []
             for name, res in results.items():
                 for err in getattr(res, 'errors', []) or []:
-                    nicer = {"simkl": "Simkl", "tmdb": "TMDB",
-                             "letterboxd": "Letterboxd"}.get(name, name)
+                    nicer = BACKEND_DISPLAY_NAMES.get(name, name)
                     err_lines.append(f"{nicer}: {err}")
             if err_lines:
                 for i, txt in enumerate(err_lines):

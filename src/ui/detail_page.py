@@ -1354,13 +1354,12 @@ class DetailPage(Gtk.Box):
 
         app = self.win.get_application()
         engine = getattr(app, '_sync_engine', None)
-        backend_names = {"simkl": "Simkl", "tmdb": "TMDB", "letterboxd": "Letterboxd"}
         svc = "Simkl"
         if engine is not None:
             for b in engine._backends:
                 key = f"sync-{b.name}-enabled"
                 if engine._settings.get_boolean(key) and b.is_authenticated():
-                    svc = backend_names.get(b.name, b.name)
+                    svc = b.display_name
                     break
 
         cfg = self._SYNC_DIALOG_CONFIG[action_type]

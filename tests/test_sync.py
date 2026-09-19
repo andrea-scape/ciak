@@ -658,6 +658,7 @@ class TestSyncDeletionConfirm(unittest.TestCase):
 
         backend = MagicMock()
         backend.name = "simkl"
+        backend.display_name = "Simkl"
         backend.is_authenticated.return_value = True
 
         engine = SyncEngine(settings, [backend], repo=repo)
