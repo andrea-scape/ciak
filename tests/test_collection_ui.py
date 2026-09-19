@@ -27,7 +27,7 @@ from src.domain.models import Collection, Movie
 from src.window import MainWindow
 from src.ui.main_page import MainPage
 from src.ui.detail_page import DetailPage
-from src.ui.media_card import make_media_card
+from src.ui.media_card import make_media_card, POSTER_W
 from src.ui.collection_page import CollectionPage
 
 
@@ -271,6 +271,45 @@ class CollectionUITest(unittest.TestCase):
         movie = Movie(tmdb_id=1, title="One")
         button = make_media_card(movie)
         self.assertIsNone(_watched_badge(button))
+
+    def test_watched_badge_overlay_anchored_to_poster(self):
+        movie = Movie(tmdb_id=1, title="One")
+        button = make_media_card(movie, watched=True)
+        overlay = _watched_badge(button).get_parent()
+        self.assertIsInstance(overlay, Gtk.Overlay)
+        self.assertEqual(overlay.get_halign(), Gtk.Align.CENTER)
+        self.assertEqual(overlay.get_valign(), Gtk.Align.START)
+
+    def test_card_width_pinned_to_poster(self):
+        movie = Movie(
+            tmdb_id=1,
+            title="Harry Potter and the Deathly Hallows Part 2 - A Very Long Title",
+        )
+        button = make_media_card(movie)
+        root = Gtk.Box()
+        root.add_css_class("ciak-dashboard")
+        root.append(button)
+
+        def walk(w, out):
+            out.append(w)
+            child = w.get_first_child()
+            while child:
+                walk(child, out)
+                child = child.get_next_sibling()
+
+        nodes = []
+        walk(button, nodes)
+        heading = next(n for n in nodes if "heading" in n.get_css_classes())
+        caption = next(
+            n for n in nodes
+            if "caption" in n.get_css_classes() and "heading" not in n.get_css_classes()
+        )
+        # The heading is the only child that could exceed POSTER_W; capping its
+        # char width is what keeps every card at 160.
+        self.assertLessEqual(
+            heading.measure(Gtk.Orientation.HORIZONTAL, -1)[1], POSTER_W
+        )
+        self.assertEqual(caption.get_max_width_chars(), 24)
 
     # ---- collection page grid ----
 

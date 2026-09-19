@@ -5,6 +5,7 @@ a single SQLite database file.  Methods are synchronous and safe for
 use from background threads (check_same_thread=False, WAL mode).
 """
 
+import json
 import logging
 import sqlite3
 import threading
@@ -390,7 +391,7 @@ class LocalMediaRepository:
 
         movies = conn.execute(
             "SELECT w.tmdb_id, 'movie' AS media_type, m.title, m.year, "
-            "m.poster_url, r.rating, w.notes, w.watched_at, "
+            "m.poster_url, m.genres, r.rating, w.notes, w.watched_at, "
             "NULL AS season_number, NULL AS episode_number, "
             "NULL AS end_season_number, NULL AS end_episode_number, "
             "NULL AS show_tmdb_id "
@@ -405,7 +406,7 @@ class LocalMediaRepository:
         ep_rows = conn.execute(
             "SELECT w.tmdb_id, w.media_type, w.show_tmdb_id, "
             "w.season_number, w.episode_number, w.notes, w.watched_at, "
-            "COALESCE(m.title, '') AS title, m.year, m.poster_url, "
+            "COALESCE(m.title, '') AS title, m.year, m.poster_url, m.genres, "
             "r.rating "
             "FROM watched_items w "
             "LEFT JOIN media_items m ON m.tmdb_id = COALESCE("
@@ -442,6 +443,7 @@ class LocalMediaRepository:
                 "title": first["title"] or "Unknown",
                 "year": first["year"],
                 "poster_url": first["poster_url"],
+                "genres": first["genres"],
                 "rating": first["rating"],
                 "notes": notes,
                 "watched_at": max(r["watched_at"] for r in rows),
@@ -461,6 +463,24 @@ class LocalMediaRepository:
 
         entries.sort(key=lambda e: (e.get("title") or "").lower())
         return entries
+
+    def get_diary_genres(self) -> list[str]:
+        """Sorted unique genre names across all diary (watched) media."""
+        conn = self._ensure_conn()
+        rows = conn.execute(
+            "SELECT DISTINCT m.genres FROM watched_items w "
+            "LEFT JOIN media_items m ON m.tmdb_id = COALESCE("
+            "w.show_tmdb_id, w.tmdb_id) "
+            "WHERE m.genres IS NOT NULL AND m.genres != ''"
+        ).fetchall()
+        names = set()
+        for (raw,) in rows:
+            try:
+                data = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            names.update(g for g in data if isinstance(g, str))
+        return sorted(names)
 
     def _session_where(self, tmdb_id: int, is_show: bool) -> tuple[str, tuple]:
         """WHERE fragment selecting every watched row of one session kind."""

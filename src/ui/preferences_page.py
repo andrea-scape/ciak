@@ -11,6 +11,7 @@ from .. import config
 from ..theme import apply_theme
 from .export_dialog import show_export_dialog
 from .import_dialog import show_import_dialog
+from .notifications import make_airing_notification
 from ..data.sync.credentials import load_credential, store_credential, delete_service
 from ..data.sync.tmdb_backend import TmdbSyncBackend
 from ..data.sync.simkl_backend import SimklSyncBackend
@@ -138,6 +139,10 @@ class PreferencesPage(Adw.PreferencesDialog):
         notifications_group.set_description(
             "Desktop notifications when media on your watchlist airs or releases"
         )
+        beta_pill = Gtk.Label(label="BETA")
+        beta_pill.add_css_class("beta-chip-pill")
+        beta_pill.add_css_class("beta-chip")
+        notifications_group.set_header_suffix(beta_pill)
         page.add(notifications_group)
 
         notify_row = Adw.SwitchRow()
@@ -145,6 +150,7 @@ class PreferencesPage(Adw.PreferencesDialog):
         notify_row.set_subtitle(
             "Notify me when watchlist media airs (app must be running)"
         )
+        notify_row.connect("notify::active", self._on_airing_notify_toggled)
         self._settings.bind(
             "airing-notifications",
             notify_row,
@@ -170,6 +176,18 @@ class PreferencesPage(Adw.PreferencesDialog):
             Gio.SettingsBindFlags.DEFAULT,
         )
         notifications_group.add(scope_row)
+
+        test_row = Adw.ActionRow()
+        test_row.set_title("Send Test Notification")
+        test_row.set_subtitle(
+            "Sample 'Breaking Bad' S01E01 new-episode notification")
+        test_btn = Gtk.Button(label="Send")
+        test_btn.add_css_class("suggested-action")
+        test_btn.set_valign(Gtk.Align.CENTER)
+        test_btn.connect("clicked", self._on_send_test_notification)
+        test_row.set_activatable_widget(test_btn)
+        test_row.add_suffix(test_btn)
+        notifications_group.add(test_row)
 
         content_group = Adw.PreferencesGroup()
         content_group.set_title("Content")
@@ -934,6 +952,23 @@ class PreferencesPage(Adw.PreferencesDialog):
     def _on_notify_scope_changed(self, row, _gparam):
         value = "selected" if row.get_selected() == 1 else "all"
         self._settings.set_string("notification-scope", value)
+
+    def _on_airing_notify_toggled(self, row, _gparam):
+        if row.get_active():
+            app = self.win.get_application()
+            if app is not None and hasattr(app, "check_airings_now"):
+                app.check_airings_now()
+
+    def _on_send_test_notification(self, _btn):
+        app = self.win.get_application()
+        if app is None:
+            return
+        item = {
+            "key": "show:1396",
+            "title": "Breaking Bad",
+            "body": "S01E01 \u00b7 Pilot (2008-01-20)",
+        }
+        app.send_notification(None, make_airing_notification(item))
 
     def _on_tmdb_key_changed(self, row):
         self._settings.set_string("tmdb-api-key", row.get_text())

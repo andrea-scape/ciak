@@ -13,7 +13,6 @@ from .anim import CONTENT_MS, fade_in
 
 POSTER_W = 160
 POSTER_H = 240
-TITLE_MAX_CHARS = 18
 PAGE_GUTTER_PX = 24
 
 
@@ -122,8 +121,7 @@ def make_media_card(item, main_page=None, footer=None, watched=False,
     title.set_xalign(0)
     title.set_valign(Gtk.Align.START)
     title.set_ellipsize(Pango.EllipsizeMode.END)
-    title.set_width_chars(TITLE_MAX_CHARS)
-    title.set_max_width_chars(TITLE_MAX_CHARS)
+    title.set_max_width_chars(16)
     info.append(title)
 
     if item.year:
@@ -137,6 +135,8 @@ def make_media_card(item, main_page=None, footer=None, watched=False,
     mtype.add_css_class("caption")
     mtype.add_css_class("dimmed")
     mtype.set_xalign(0)
+    mtype.set_ellipsize(Pango.EllipsizeMode.END)
+    mtype.set_max_width_chars(24)
     info.append(mtype)
 
     spacer = Gtk.Box()
@@ -201,6 +201,8 @@ def add_watched_badge(card, frame=None):
     overlay = Gtk.Overlay()
     overlay.set_child(target)
     overlay.set_size_request(POSTER_W, POSTER_H)
+    overlay.set_halign(Gtk.Align.CENTER)
+    overlay.set_valign(Gtk.Align.START)
     badge = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     badge.add_css_class("poster-badge")
     badge.add_css_class("watched-badge")

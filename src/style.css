@@ -541,6 +541,7 @@ flowbox flowboxchild {
     border-radius: 12px;
     border: none;
     box-shadow: 0 4px 12px alpha(black, 0.15);
+    transition: box-shadow 150ms ease;
 }
 
 .detail-page .movie-poster-frame > picture {
@@ -775,11 +776,11 @@ flowbox flowboxchild {
 }
 
 .cal-year-label {
-    margin-bottom: -2px;
+    margin-bottom: 0;
 }
 
 .cal-month-label {
-    margin-top: -2px;
+    margin-top: 0;
 }
 
 .cal-weekday {
@@ -807,7 +808,7 @@ flowbox flowboxchild {
 }
 
 .cal-day-popover {
-    min-width: 260px;
+    min-width: 338px;
 }
 
 .cal-poster {
@@ -842,10 +843,6 @@ flowbox flowboxchild {
     margin-left: 12px;
 }
 
-.cal-upcoming-popover {
-    min-width: 280px;
-}
-
 .cal-upcoming {
     background: var(--card-bg-color);
     border-radius: 12px;
@@ -874,17 +871,9 @@ flowbox flowboxchild {
     font-size: 17px;
 }
 
-.diary-day {
-    padding: 0 0 4px;
-}
-
-.diary-row {
-    padding: 2px 0 6px;
-}
-
 .diary-stars {
     font-size: 13px;
-    color: var(--accent-color);
+    color: var(--accent-bg-color);
     letter-spacing: 1px;
 }
 
@@ -908,7 +897,7 @@ flowbox flowboxchild {
 /* ------------------------------------------------------------------ */
 
 .diary-month-divider {
-    margin-top: 20px;
+    margin-top: 28px;
     padding-bottom: 6px;
     border-bottom: 1px solid alpha(@window_fg_color, 0.12);
 }
@@ -923,12 +912,14 @@ flowbox flowboxchild {
     background: alpha(@window_bg_color, 0.92);
     border: 1px solid alpha(@window_fg_color, 0.15);
     border-radius: 999px;
-    padding: 4px 14px;
+    padding: 6px 14px;
     font-weight: 700;
     font-size: 12px;
 }
 
 .diary-back-pill {
+    background: @window_bg_color;
+    border: 1px solid alpha(@window_fg_color, 0.15);
     border-radius: 999px;
     padding: 10px;
     box-shadow: 0 2px 8px alpha(black, 0.35);
@@ -941,7 +932,8 @@ flowbox flowboxchild {
 .diary-month-label {
     font-weight: 700;
     font-size: 15px;
-    letter-spacing: 0.3px;
+    min-height: 24px;
+    line-height: 1.5;
 }
 
 .diary-note-snippet {
@@ -963,21 +955,4 @@ flowbox flowboxchild {
 
 .diary-entry .diary-note-btn.has-note {
     color: var(--accent-color);
-}
-
-.diary-list-row {
-    padding: 4px;
-    border-radius: 12px;
-}
-
-.diary-list-row:hover {
-    background: alpha(@window_fg_color, 0.06);
-}
-
-.diary-thumb {
-    border-radius: 6px;
-}
-
-.diary-list-rows {
-    padding: 2px 0 6px;
 }

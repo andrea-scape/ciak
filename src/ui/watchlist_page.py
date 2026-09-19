@@ -890,11 +890,8 @@ class WatchlistPage(Gtk.Box):
             built.append(card)
             card._pre_reveal = not self._revealed
             if self._revealed and animations_enabled():
-                # Repopulate pass: hide AND offset the card BEFORE any
-                # frame can paint it, so the delayed rise-fade never
-                # flashes or jumps.
-                card._rise_orig_margin = card.get_margin_top()
-                card.set_margin_top(card.get_margin_top() + CONTENT_PX)
+                # Repopulate pass: hide the card BEFORE any frame can
+                # paint it, so the delayed rise-fade never flashes.
                 card.set_opacity(0.0)
 
         cards.extend(built)

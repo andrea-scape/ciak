@@ -196,6 +196,11 @@ class CiakApp(Adw.Application):
             self._metadata_service = None
         self._show_onboarding(Gio.Settings.new(config.APP_ID))
 
+    def check_airings_now(self):
+        notifier = getattr(self, "_notifier", None)
+        if notifier is not None:
+            notifier.trigger()
+
     def delete_local_database(self):
         """Close all open handles, erase the SQLite database and poster
         cache, then rebuild the main window from scratch."""

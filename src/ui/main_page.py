@@ -151,7 +151,11 @@ class MainPage(Adw.Bin):
             "open-detail", GLib.VariantType.new("(ss)")
         )
         open_detail_action.connect("activate", self._on_open_detail_activated)
-        self.win.add_action(open_detail_action)
+        app = self.win.get_application()
+        if app is not None:
+            app.add_action(open_detail_action)
+        else:
+            self.win.add_action(open_detail_action)
 
         # Master-switch flips hide/show the bell on the open detail page.
         self.win.settings.connect(

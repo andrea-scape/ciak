@@ -34,13 +34,17 @@ def _seed(repo):
     conn = repo._ensure_conn()
     conn.executemany(
         "INSERT INTO media_items (tmdb_id, media_type, title, year, "
-        "poster_url, runtime, cached_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "poster_url, runtime, genres, cached_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
-            (MOVIE_A, "movie", "Movie A", 2020, "a.jpg", 110, 1, 1),
-            (MOVIE_B, "movie", "Movie B", 2021, "b.jpg", 90, 1, 1),
-            (SHOW_1, "show", "Show One", 2019, "s1.jpg", 45, 1, 1),
-            # SHOW_2 intentionally left without a cached runtime.
-            (SHOW_2, "show", "Show Two", 2022, "s2.jpg", None, 1, 1),
+            (MOVIE_A, "movie", "Movie A", 2020, "a.jpg", 110,
+             '["Drama","Thriller"]', 1, 1),
+            (MOVIE_B, "movie", "Movie B", 2021, "b.jpg", 90,
+             '["Comedy"]', 1, 1),
+            (SHOW_1, "show", "Show One", 2019, "s1.jpg", 45,
+             '["Drama","Sci-Fi"]', 1, 1),
+            # SHOW_2 intentionally left without a cached runtime or genres.
+            (SHOW_2, "show", "Show Two", 2022, "s2.jpg", None, None, 1, 1),
         ],
     )
     conn.executemany(
@@ -142,6 +146,26 @@ class DiaryEntriesTest(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_movies_carry_genres_json(self):
+        repo, tmp = _make_repo()
+        try:
+            movies = [e for e in repo.get_diary_entries(DAY_1)
+                      if e["media_type"] == "movie"]
+            self.assertEqual(
+                movies[0]["genres"], '["Drama","Thriller"]')
+        finally:
+            tmp.cleanup()
+
+    def test_show_consolidation_carries_show_genres(self):
+        repo, tmp = _make_repo()
+        try:
+            shows = [e for e in repo.get_diary_entries(DAY_1)
+                     if e["media_type"] != "movie"]
+            self.assertEqual(shows[0]["tmdb_id"], SHOW_1)
+            self.assertEqual(shows[0]["genres"], '["Drama","Sci-Fi"]')
+        finally:
+            tmp.cleanup()
+
     def test_episodes_consolidated_per_show_with_range(self):
         repo, tmp = _make_repo()
         try:
@@ -156,6 +180,23 @@ class DiaryEntriesTest(unittest.TestCase):
             self.assertEqual(s["end_episode_number"], 2)
         finally:
             tmp.cleanup()
+
+
+class DiaryGenresRepoTest(unittest.TestCase):
+    def test_unique_sorted_across_all_diary_media(self):
+        repo, tmp = _make_repo()
+        try:
+            self.assertEqual(
+                repo.get_diary_genres(),
+                ["Comedy", "Drama", "Sci-Fi", "Thriller"])
+        finally:
+            tmp.cleanup()
+
+    def test_empty_history_returns_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = LocalMediaRepository(os.path.join(d, "db.sqlite"))
+            repo.initialize()
+            self.assertEqual(repo.get_diary_genres(), [])
 
 
 class SessionNotesTest(unittest.TestCase):

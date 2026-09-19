@@ -448,10 +448,8 @@ class SearchPage(Adw.Bin):
                 self.shows_grid.append(card)
             built.append(card)
             if self._revealed and animations_enabled():
-                # Repopulate pass: hide AND offset before any frame
-                # paints it — no flash, no jump.
-                card._rise_orig_margin = card.get_margin_top()
-                card.set_margin_top(card.get_margin_top() + CONTENT_PX)
+                # Repopulate pass: hide the card BEFORE any frame can
+                # paint it — no flash.
                 card.set_opacity(0.0)
 
         self._search_build_cards.extend(built)

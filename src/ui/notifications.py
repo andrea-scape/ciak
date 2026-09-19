@@ -130,6 +130,27 @@ def find_due_airings(
     return due
 
 
+def make_airing_notification(item):
+    """Build the Gio.Notification for a due-airing item dict.
+
+    Shared with the preferences test button so the sample notification
+    is byte-identical to a real one.
+    """
+    notif = Gio.Notification.new(item["title"])
+    notif.set_body(item["body"])
+    target = GLib.Variant("(ss)", notification_target(item["key"]))
+    notif.set_default_action_and_target("app.open-detail", target)
+    notif.set_priority(Gio.NotificationPriority.NORMAL)
+    return notif
+
+
+def notification_target(key):
+    parts = key.split(":")
+    if parts[0] == "movie":
+        return ["movie", parts[1]]
+    return ["show", parts[1]]
+
+
 class AiringNotifier:
     """Schedules periodic checks and posts desktop notifications."""
 
@@ -190,26 +211,11 @@ class AiringNotifier:
         if app is not None:
             for item in due:
                 self.user_repo.mark_notified(item["key"])
-                app.send_notification(None, self._make_notification(item))
+                app.send_notification(None, make_airing_notification(item))
         settings.set_int64(
             "notifications-last-check", int(time.time())
         )
         return False
-
-    def _make_notification(self, item):
-        notif = Gio.Notification.new(item["title"])
-        notif.set_body(item["body"])
-        target = GLib.Variant("(ss)", self._target_of(item["key"]))
-        notif.set_default_action_and_target("app.open-detail", target)
-        notif.set_priority(Gio.NotificationPriority.NORMAL)
-        return notif
-
-    @staticmethod
-    def _target_of(key):
-        parts = key.split(":")
-        if parts[0] == "movie":
-            return ["movie", parts[1]]
-        return ["show", parts[1]]
 
     def _settings(self):
         getter = getattr(self.win, "settings", None)

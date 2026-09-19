@@ -85,43 +85,33 @@ NAV_CROSSFADE_MS = 225   # main page switches
 
 
 def rise_fade_in(widgets, duration_ms=200, rise_px=8, on_done=None):
-    """Fade widgets in while they drift up `rise_px` into their natural
-    position. Easing is ease-in-out so motion starts gently, flows and
-    settles gently — same even character as the page-switch crossfade.
-    GTK4 exposes no CSS transforms for widgets, so the rise animates
-    margin_top back to the captured original alongside opacity — same
-    manual tick style as the other helpers here. With animations
-    disabled everything restores instantly."""
+    """Fade widgets in with an ease-in-out curve. Easing is smoothstep so
+    motion starts gently, flows and settles gently — same even character
+    as the page-switch crossfade. Only opacity is animated: it is a pure
+    render property, so the compositor handles it and nothing is re-laid
+    out per frame (the old margin-based rise forced a layout pass on the
+    whole page every frame, which is exactly what made poster-heavy pages
+    stutter). `rise_px` is accepted for call-site compatibility; the rise
+    itself is dropped because GTK/Python here cannot set widget
+    transforms. With animations disabled everything restores instantly."""
     batch = [w for w in widgets if w.get_visible()]
     if not batch:
         if on_done:
             on_done()
         return
 
-    # Capture natural margins before offsetting. Cards built during a
-    # repopulate pass stash their true margin in _rise_orig_margin at
-    # append time; without this a second rise would compound the offset.
-    state = []
-    for w in batch:
-        orig = getattr(w, "_rise_orig_margin", None)
-        if orig is None:
-            orig = w.get_margin_top()
-            w._rise_orig_margin = orig
-        state.append((w, orig))
+    start_time = GLib.get_monotonic_time()
+    duration_us = duration_ms * 1000
 
     def _restore():
-        for w, orig in state:
+        for w in batch:
             w.set_opacity(1.0)
-            w.set_margin_top(orig)
 
     if not _animations_enabled:
         _restore()
         if on_done:
             on_done()
         return
-
-    start_time = GLib.get_monotonic_time()
-    duration_us = duration_ms * 1000
 
     def _tick(*_args):
         # Driven by the widget's frame clock: exactly one callback per
@@ -136,15 +126,13 @@ def rise_fade_in(widgets, duration_ms=200, rise_px=8, on_done=None):
         p = max(elapsed, 0) / duration_us
         # smoothstep: gentle start, even flow, gentle settle
         eased = p * p * (3.0 - 2.0 * p)
-        for w, orig in state:
+        for w in batch:
             w.set_opacity(eased)
-            w.set_margin_top(orig + round(rise_px * (1.0 - eased)))
         return True  # keep ticking
 
-    for w, orig in state:
+    for w in batch:
         w.set_opacity(0.0)
-        w.set_margin_top(orig + rise_px)
-    state[0][0].add_tick_callback(_tick)
+    batch[0].add_tick_callback(_tick)
 
 
 def fade_in_group(widgets, duration_ms=300, on_done=None):

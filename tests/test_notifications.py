@@ -4,9 +4,13 @@ import tempfile
 import time
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 from src.data.local.repository import LocalMediaRepository
-from src.ui.notifications import CATCHUP_WINDOW_S, find_due_airings
+from src.ui.notifications import (
+    CATCHUP_WINDOW_S, find_due_airings,
+    make_airing_notification, notification_target,
+)
 
 
 class _Settings:
@@ -167,6 +171,45 @@ class FindDueAiringsTest(unittest.TestCase):
             _FakeMeta(episodes=[_ep(air_iso=str(TODAY - datetime.timedelta(days=1)))]),
             _Settings(last=recent_last), today=TODAY, now=NOW)
         self.assertEqual(due, [])
+
+
+class AiringNotificationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import gi
+
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import Gio, GLib
+
+        cls.Gio = Gio
+        cls.GLib = GLib
+
+    def test_builds_show_notification_with_open_detail(self):
+        notif = self.Gio.Notification.new("stub")
+        with mock.patch.object(self.Gio.Notification, "new",
+                               return_value=notif) as new, \
+                mock.patch.object(notif, "set_body") as body, \
+                mock.patch.object(notif, "set_default_action_and_target") \
+                as action, \
+                mock.patch.object(notif, "set_priority") as priority:
+            result = make_airing_notification({
+                "key": "show:1396",
+                "title": "Breaking Bad",
+                "body": "S01E01 \u00b7 Pilot (2008-01-20)",
+            })
+        self.assertIs(result, notif)
+        new.assert_called_once_with("Breaking Bad")
+        body.assert_called_once_with("S01E01 \u00b7 Pilot (2008-01-20)")
+        action.assert_called_once_with(
+            "app.open-detail",
+            self.GLib.Variant("(ss)", ("show", "1396")))
+        priority.assert_called_once_with(
+            self.Gio.NotificationPriority.NORMAL)
+
+    def test_movie_and_show_targets(self):
+        self.assertEqual(notification_target("movie:1"), ["movie", "1"])
+        self.assertEqual(notification_target("show:1396"), ["show", "1396"])
 
 
 class NotificationStoreTest(unittest.TestCase):

@@ -187,8 +187,9 @@ class PreZeroOnRepopulateTest(unittest.TestCase):
         page._pump_build(schedule=False)
         card = page.movies_grid.get_first_child().get_child()
         self.assertEqual(card.get_opacity(), 0.0)
-        # rise offset applied before any frame paints
-        self.assertEqual(card.get_margin_top(), 8)
+        # the fade keeps layout untouched: margins stay zero while the card
+        # waits for its first painted frame
+        self.assertEqual(card.get_margin_top(), 0)
 
     def test_first_load_cards_stay_visible(self):
         page = _make_page()

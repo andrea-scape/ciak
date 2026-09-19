@@ -21,10 +21,16 @@ TMDB_GENRE_NAMES = {
 }
 
 
+def _genre_raw(item):
+    if isinstance(item, dict):
+        return item.get("genres")
+    return getattr(item, "genres", None)
+
+
 def item_genre_names(item):
     """Genre names for an item: cached pages carry a JSON string of names,
     live search results carry numeric TMDB genre_ids."""
-    raw = getattr(item, "genres", None)
+    raw = _genre_raw(item)
     if raw:
         if isinstance(raw, str):
             try:

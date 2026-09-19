@@ -43,6 +43,7 @@ class CalendarPage(Gtk.Box):
         self._shows = {}
         self._fetch_gen = 0
         self._filter = "all"
+        self._upcoming_popover = None
 
         from . import page_reveal
         from . import poster
@@ -95,7 +96,6 @@ class CalendarPage(Gtk.Box):
         self._upcoming_btn = Gtk.Button(label="Upcoming")
         self._upcoming_btn.add_css_class("flat")
         self._upcoming_btn.add_css_class("cal-upcoming-btn")
-        self._upcoming_btn.connect("clicked", self._on_upcoming_clicked)
 
         self._today_btn = Gtk.Button(label="Today")
         self._today_btn.add_css_class("flat")
@@ -111,34 +111,86 @@ class CalendarPage(Gtk.Box):
         nav.append(self._today_btn)
         nav.append(self._upcoming_btn)
 
-        self._build_popover()
         self.append(nav)
+        self._upcoming_btn.connect("clicked", self._on_upcoming_clicked)
         self._update_nav_labels()
 
-    def _build_popover(self):
-        self._popover = Gtk.Popover()
-        self._popover.set_position(Gtk.PositionType.BOTTOM)
-        self._popover.add_css_class("cal-upcoming-popover")
-
-        self._popover_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self._popover_box.set_margin_top(12)
-        self._popover_box.set_margin_bottom(12)
-        self._popover_box.set_margin_start(12)
-        self._popover_box.set_margin_end(12)
-
-        title = Gtk.Label()
-        title.set_markup("<b>Upcoming</b>")
-        title.set_halign(Gtk.Align.START)
-        self._popover_box.append(title)
-
-        self._popover_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self._popover_box.append(self._popover_list)
-
-        self._popover.set_child(self._popover_box)
-        self._popover.set_parent(self._upcoming_btn)
-
     def _on_upcoming_clicked(self, btn):
-        self._popover.popup()
+        old = self._upcoming_popover
+        if old is not None:
+            old.popdown()
+        popover = self._build_month_popover(btn)
+        self._upcoming_popover = popover
+        popover.connect("closed", self._on_upcoming_closed)
+        popover.popup()
+
+    def _on_upcoming_closed(self, popover):
+        if self._upcoming_popover is popover:
+            self._upcoming_popover = None
+        popover.destroy()
+
+    def _month_releases(self):
+        """(date, show, ep) tuples for every release in the shown month."""
+        releases = []
+        for day in range(1, cal_mod.monthrange(self._year, self._month)[1] + 1):
+            date = datetime.date(self._year, self._month, day)
+            for show, ep in self._airings.get(date.isoformat(), []):
+                releases.append((date, show, ep))
+        return releases
+
+    def _upcoming_releases(self, ref=None):
+        """Releases on/after today within the shown month."""
+        today = ref or datetime.date.today()
+        return [(d, s, e) for d, s, e in self._month_releases() if d >= today]
+
+    def _count_upcoming_in_month(self, ref=None):
+        """Releases on/after today within the shown month (button label)."""
+        return len(self._upcoming_releases(ref))
+
+    def _popover_max_height(self):
+        root = self.get_root()
+        h = root.get_height() if root is not None else 0
+        if h > 0:
+            return max(320, int(h * 0.65))
+        return 320
+
+    def _build_month_popover(self, btn, ref=None):
+        popover = Gtk.Popover()
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        popover.add_css_class("cal-day-popover")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        header = Gtk.Label()
+        header.set_markup(f"<b>{MONTHS_FULL[self._month - 1]} {self._year}</b>")
+        header.set_halign(Gtk.Align.START)
+        box.append(header)
+
+        releases = self._upcoming_releases(ref)
+        for date, show, ep in releases:
+            media_type = "movie" if ep is None else "show"
+            box.append(self._build_upcoming_card(date, show, ep, media_type))
+
+        if not releases:
+            none_lbl = Gtk.Label()
+            none_lbl.set_markup('<span alpha="55%">Nothing upcoming</span>')
+            none_lbl.set_halign(Gtk.Align.START)
+            none_lbl.set_margin_start(4)
+            box.append(none_lbl)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_max_content_height(self._popover_max_height())
+        scroller.set_propagate_natural_height(True)
+        scroller.set_child(box)
+
+        popover.set_child(scroller)
+        popover.set_parent(btn)
+        return popover
 
     def _on_today_clicked(self, _btn):
         today = datetime.date.today()
@@ -349,12 +401,6 @@ class CalendarPage(Gtk.Box):
                 break
             self._grid.remove(child)
 
-        while True:
-            child = self._popover_list.get_first_child()
-            if child is None:
-                break
-            self._popover_list.remove(child)
-
         for i, name in enumerate(WEEKDAYS):
             lbl = Gtk.Label(label=name)
             lbl.add_css_class("cal-weekday")
@@ -381,20 +427,8 @@ class CalendarPage(Gtk.Box):
                     cell.add_css_class("cal-today")
                 self._grid.attach(cell, col_idx, row_idx + 1, 1, 1)
 
-        count = len(self._upcoming)
+        count = self._count_upcoming_in_month()
         self._upcoming_btn.set_label(f"Upcoming ({count})" if count else "Upcoming")
-
-        if self._upcoming:
-            for date, show, ep in self._upcoming:
-                media_type = "movie" if ep is None else "show"
-                card = self._build_upcoming_card(date, show, ep, media_type)
-                self._popover_list.append(card)
-        else:
-            none_lbl = Gtk.Label()
-            none_lbl.set_markup('<span alpha="55%">Nothing upcoming</span>')
-            none_lbl.set_halign(Gtk.Align.START)
-            none_lbl.set_margin_start(4)
-            self._popover_list.append(none_lbl)
 
     def _build_day_cell(self, day, airing_list):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)

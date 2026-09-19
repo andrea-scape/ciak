@@ -15,8 +15,8 @@ from types import SimpleNamespace
 
 from gi.repository import Gdk, GLib, Gtk, Adw, Pango
 
-from .media_card import make_media_card, card_poster_url, PAGE_GUTTER_PX
-from .poster import FixedPaintable, load_poster
+from .media_card import make_media_card, PAGE_GUTTER_PX
+from .genre_chips import GenreChipsRow, matches_all
 from . import page_reveal
 from . import poster as poster_mod
 from . import scroll_restore
@@ -37,6 +37,15 @@ def stars_for_rating(rating):
 def star_glyphs(n):
     filled, empty = "\u2605", "\u2606"
     return filled * n + empty * (5 - n)
+
+
+def apply_stars_to_label(stars_label, rating):
+    """Render the star glyphs for a rating; unrated entries show five
+    empty stars. Shared by the poster and list rows so the accent
+    styling, glyphs and visibility rules never drift apart."""
+    stars_label.add_css_class("diary-stars")
+    stars_label.set_text(star_glyphs(stars_for_rating(rating) or 0))
+    stars_label.set_visible(True)
 
 
 def format_minutes(total):
@@ -290,11 +299,14 @@ class MonthDivider(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.add_css_class("diary-month-divider")
         self.month_key = month_key
+        self.set_size_request(-1, 44)
 
         name = Gtk.Label(label=label)
         name.add_css_class("diary-month-label")
         name.set_halign(Gtk.Align.START)
         name.set_hexpand(True)
+        name.set_vexpand(True)
+        name.set_valign(Gtk.Align.CENTER)
 
         meta = Gtk.Label(
             label=f"{titles} {'title' if titles == 1 else 'titles'}"
@@ -309,15 +321,13 @@ class MonthDivider(Gtk.Box):
 
 
 class DayGroup(Gtk.Box):
-    """One date section: header row plus entries in poster or list mode."""
+    """One date section: header row plus the poster grid."""
 
-    def __init__(self, main_page, day_info, entries, repo, mode="posters",
-                 american=False):
+    def __init__(self, main_page, day_info, entries, repo, american=False):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.add_css_class("diary-day")
         self._main_page = main_page
         self._repo = repo
-        self._mode = mode
         self._american = american
         self._day = day_info["day"]
         self._cards = {}
@@ -337,32 +347,22 @@ class DayGroup(Gtk.Box):
         meta.set_halign(Gtk.Align.END)
 
         header = Gtk.Box(spacing=8)
-        header.set_margin_bottom(6)
+        header.set_margin_bottom(12)
         header.append(title)
         header.append(meta)
         self.append(header)
 
-        if mode == "list":
-            body = Gtk.Box(
-                orientation=Gtk.Orientation.VERTICAL, spacing=4,
-            )
-            body.add_css_class("diary-list-rows")
-            for entry in entries:
-                body.append(self._build_list_row(entry))
-            self.append(body)
-        else:
-            body = Adw.WrapBox(
-                child_spacing=20, line_spacing=14,
-                natural_line_length=6 * 160 + 5 * 20,
-            )
-            # Never absorb surplus viewport height — otherwise a short
-            # list stretches entries instead of leaving space below.
-            body.set_valign(Gtk.Align.START)
-            body.add_css_class("diary-row")
-            body.set_margin_bottom(4)
-            for entry in entries:
-                body.append(self._build_poster_card(entry))
-            self.append(body)
+        body = Adw.WrapBox(
+            child_spacing=20, line_spacing=28,
+            natural_line_length=6 * 160 + 5 * 20,
+        )
+        # Never absorb surplus viewport height — otherwise a short
+        # list stretches entries instead of leaving space below.
+        body.set_valign(Gtk.Align.START)
+        body.add_css_class("diary-row")
+        for entry in entries:
+            body.append(self._build_poster_card(entry))
+        self.append(body)
 
     # -- poster mode ---------------------------------------------------
 
@@ -398,86 +398,6 @@ class DayGroup(Gtk.Box):
         self._apply_entry_state(item, stars_label, note_btn, snippet)
         self._cards[id(item)] = (item, stars_label, note_btn, snippet)
         return wrap
-
-    # -- list mode -----------------------------------------------------
-
-    def _build_list_row(self, entry):
-        item = SimpleNamespace(**entry)
-        stars_label = Gtk.Label()
-        note_btn = self._make_note_button()
-
-        paintable = FixedPaintable(60, 90)
-        thumb = Gtk.Picture()
-        thumb.set_paintable(paintable)
-        # load_poster's contract: it looks the paintable up on the
-        # picture itself (same registration as make_media_card).
-        thumb._fixed_paintable = paintable
-        thumb.set_size_request(60, 90)
-        thumb.set_content_fit(Gtk.ContentFit.COVER)
-        thumb.add_css_class("diary-thumb")
-        load_poster(card_poster_url(item.poster_url), thumb)
-
-        info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        name = Gtk.Label(label=item.title, halign=Gtk.Align.START)
-        name.add_css_class("heading")
-        name.set_ellipsize(Pango.EllipsizeMode.END)
-        sub = Gtk.Label(
-            label=self._row_subtitle(item), halign=Gtk.Align.START,
-        )
-        sub.add_css_class("dimmed")
-        sub.add_css_class("caption")
-        sub.set_ellipsize(Pango.EllipsizeMode.END)
-        info.append(name)
-        info.append(sub)
-        info.set_halign(Gtk.Align.START)
-        info.set_hexpand(True)
-        info.set_valign(Gtk.Align.CENTER)
-
-        end = Gtk.Box(spacing=8)
-        end.set_valign(Gtk.Align.CENTER)
-        end.append(stars_label)
-
-        body_btn = Gtk.Button()
-        body_btn.add_css_class("flat")
-        body_btn.add_css_class("diary-list-row")
-        body = Gtk.Box(spacing=12, margin_start=8, margin_end=8,
-                       margin_top=6, margin_bottom=6)
-        body.append(thumb)
-        body.append(info)
-        body.append(end)
-        body_btn.set_child(body)
-        body_btn.connect("clicked", self._open_details, item)
-
-        wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        wrap.add_css_class("diary-entry")
-        wrap.set_valign(Gtk.Align.START)
-        body_btn.set_hexpand(True)
-        wrap.append(body_btn)
-        wrap.append(note_btn)
-        note_btn.set_valign(Gtk.Align.CENTER)
-        self._attach_session_menu(body_btn, item)
-        self._apply_entry_state(item, stars_label, note_btn, None)
-        self._cards[id(item)] = (item, stars_label, note_btn, None)
-        return wrap
-
-    def _row_subtitle(self, item):
-        parts = []
-        if getattr(item, "year", None):
-            parts.append(str(item.year))
-        if item.media_type != "movie" and item.season_number is not None:
-            start = f"S{item.season_number:02d}E{item.episode_number:02d}"
-            end_s = getattr(item, "end_season_number", None)
-            end_e = getattr(item, "end_episode_number", None)
-            if end_s is not None and (end_s, end_e) != (
-                item.season_number, item.episode_number
-            ):
-                start += f" to S{end_s:02d}E{end_e:02d}"
-            parts.append(start)
-        return " \u00b7 ".join(parts)
-
-    def _open_details(self, _btn, item):
-        if self._main_page is not None:
-            self._main_page.show_detail(item.media_type, item)
 
     # -- shared pieces ---------------------------------------------------
 
@@ -587,9 +507,7 @@ class DayGroup(Gtk.Box):
         self._main_page.invalidate_page("diary", reload_now=True)
 
     def _apply_entry_state(self, entry, stars_label, note_btn, snippet):
-        stars = stars_for_rating(entry.rating)
-        stars_label.set_text(star_glyphs(stars) if stars else "")
-        stars_label.set_visible(bool(entry.rating))
+        apply_stars_to_label(stars_label, entry.rating)
 
         has_note = bool(entry.notes)
         if has_note:
@@ -655,6 +573,7 @@ class DiaryPage(Adw.Bin):
         self._query = ""
         # Scroll-preservation / navigation bookkeeping.
         self._dividers = []          # MonthDivider widgets, in order
+        self._divider_offsets = []   # cached (month_key, y) per divider
         self._groups = []            # (day_iso, DayGroup) pairs, in order
         self._anchor_day = None      # day to re-anchor after a rebuild
         self._restore_y = 0.0
@@ -663,9 +582,11 @@ class DiaryPage(Adw.Bin):
         self._scroll_anim = 0
         self._tail_row = None
 
-        self._list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        self._list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=28)
         self._list.add_css_class("diary-list")
         self.add_css_class("diary-page")
+        self._list.connect(
+            "notify::height", lambda *_args: self._invalidate_divider_offsets())
 
         column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         # Natural height only: without this the scrolled viewport stretches
@@ -677,6 +598,13 @@ class DiaryPage(Adw.Bin):
         column.set_margin_start(PAGE_GUTTER_PX)
         column.set_margin_end(PAGE_GUTTER_PX)
         column.append(self._build_controls_row())
+
+        self.genre_chips = GenreChipsRow(on_changed=self._on_genres_changed)
+        chips_holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        chips_holder.set_size_request(-1, 44)
+        chips_holder.append(self.genre_chips)
+        column.append(chips_holder)
+
         column.append(self._list)
 
         self._scroll = Gtk.ScrolledWindow()
@@ -757,25 +685,10 @@ class DiaryPage(Adw.Bin):
     def _build_controls_row(self):
         row = Gtk.Box(spacing=12)
 
-        mode = self._settings_get("diary-view-mode", "posters")
-        self._mode_toggle = Adw.ToggleGroup()
-        self._mode_toggle.add(Adw.Toggle(
-            name="posters", icon_name="view-grid-symbolic"))
-        self._mode_toggle.add(Adw.Toggle(
-            name="list", icon_name="view-list-symbolic"))
-        self._mode_toggle.set_active_name(
-            mode if mode in ("posters", "list") else "posters")
-        self._mode_toggle.connect(
-            "notify::active-name", self._on_mode_changed)
-
-        self._search = Gtk.SearchEntry()
-        self._search.set_placeholder_text("Filter titles\u2026")
-        self._search.set_hexpand(True)
-        self._search.connect("search-changed", self._on_search_changed)
-
-        # Jump-to-month: label follows the month currently in view.
+        # Jump-to-month: static label; the month in view is tracked for the
+        # popover highlight and shown in the floating chip.
         jump_box = Gtk.Box(spacing=6)
-        self._jump_label = Gtk.Label(label="Jump")
+        self._jump_label = Gtk.Label(label="Jump to")
         jump_arrow = Gtk.Image(icon_name="pan-down-symbolic")
         jump_box.append(self._jump_label)
         jump_box.append(jump_arrow)
@@ -790,8 +703,13 @@ class DiaryPage(Adw.Bin):
         jump.connect("notify::active", self._on_jump_toggled)
         self._jump_btn = jump
 
+        self._search = Gtk.SearchEntry()
+        self._search.set_placeholder_text("Filter titles\u2026")
+        self._search.set_hexpand(True)
+        self._search.connect("search-changed", self._on_search_changed)
+
+        self._jump_month = None
         row.append(self._search)
-        row.append(self._mode_toggle)
         row.append(jump)
         return row
 
@@ -799,15 +717,6 @@ class DiaryPage(Adw.Bin):
         if self._win is not None and hasattr(self._win, "settings"):
             return self._win.settings.get_string(key)
         return default
-
-    def _settings_set(self, key, value):
-        if self._win is not None and hasattr(self._win, "settings"):
-            self._win.settings.set_string(key, value)
-
-    def _on_mode_changed(self, toggle, *_):
-        self._settings_set("diary-view-mode", toggle.get_active_name())
-        self._user_nav = True
-        self._load()
 
     @property
     def _mode(self):
@@ -831,9 +740,9 @@ class DiaryPage(Adw.Bin):
         self._user_nav = True
         self._load()
 
-    def _visible_mode(self):
-        name = self._mode_toggle.get_active_name()
-        return name if name in ("posters", "list") else "posters"
+    def _on_genres_changed(self, _chips):
+        self._user_nav = True
+        self._load()
 
     # -- loading ---------------------------------------------------------
 
@@ -856,6 +765,7 @@ class DiaryPage(Adw.Bin):
         while (child := self._list.get_first_child()) is not None:
             self._list.remove(child)
         self._dividers.clear()
+        self._divider_offsets.clear()
         self._groups.clear()
         self._remove_tail()
         self._active_month = None
@@ -863,6 +773,7 @@ class DiaryPage(Adw.Bin):
         self._days = self._repo.get_diary_days(
             media_type=self._filter
             if self._filter in ("movie", "show") else None)
+        self.genre_chips.set_genres(self._repo.get_diary_genres())
         self._built = 0
         if not self._days:
             self._empty.set_title("No diary entries yet")
@@ -883,11 +794,12 @@ class DiaryPage(Adw.Bin):
             entry.get("title") or ""
         ).casefold():
             return False
+        if not matches_all(entry, self.genre_chips.selected):
+            return False
         return True
 
     def _append_batch(self):
         batch = self._days[self._built:self._built + self.PAGE_SIZE]
-        mode = self._visible_mode()
         self._remove_tail()
         for day_info in batch:
             entries = [
@@ -906,7 +818,7 @@ class DiaryPage(Adw.Bin):
                     self._list.append(div)
                     self._last_rendered_month = month
             group = DayGroup(
-                self._main_page, day_info, entries, self._repo, mode=mode,
+                self._main_page, day_info, entries, self._repo,
                 american=datefmt.is_american(
                     getattr(self._win, "settings", None)),
             )
@@ -956,6 +868,26 @@ class DiaryPage(Adw.Bin):
         if self._restore_y > 0.0:
             scroll_restore.restore(self._scroll, self._restore_y)
             self._restore_y = 0.0
+
+    def _invalidate_divider_offsets(self):
+        """Drop the cached divider positions and snapshot them again after
+        the next layout pass. Layout changes (batch appends, window
+        resizes) trigger this; the scroll handler never queries layout."""
+        self._divider_offsets = []
+        GLib.idle_add(self._cache_divider_offsets)
+
+    def _cache_divider_offsets(self):
+        """Snapshot (month_key, y) for every divider, once per layout."""
+        offsets = []
+        for div in self._dividers:
+            top = self._widget_top(div)
+            if top is None:
+                self._divider_offsets = []
+                return False
+            offsets.append((div.month_key, top))
+        if offsets:
+            self._divider_offsets = offsets
+        return False
 
     def _widget_top(self, widget):
         """Y offset of widget within the scrollable list, or None when the
@@ -1067,6 +999,19 @@ class DiaryPage(Adw.Bin):
 
     def _active_month_for_value(self, value):
         """Month whose divider sits at/above the viewport top, or None."""
+        if not self._divider_offsets:
+            # Cache not built (pre-first-layout) — fall back to direct
+            # queries, which is at most a few divider widget lookups.
+            return self._active_month_direct(value)
+        active = None
+        for key, top in self._divider_offsets:
+            if top is None:
+                continue
+            if top <= value + 1.0:
+                active = (key, top)
+        return active
+
+    def _active_month_direct(self, value):
         active = None
         for div in self._dividers:
             top = self._widget_top(div)
@@ -1105,7 +1050,7 @@ class DiaryPage(Adw.Bin):
             lbl = Gtk.Label(label="No history yet")
             lbl.add_css_class("dimmed")
             box.append(lbl)
-        current = self._jump_label.get_text()
+        current = self._jump_month or ""
         for key in months:
             label = _month_label(key)
             count = sum(
@@ -1200,7 +1145,10 @@ class DiaryPage(Adw.Bin):
 
         active = self._active_month_for_value(adj.get_value())
         first_div = self._dividers[0] if self._dividers else None
-        first_top = self._widget_top(first_div) if first_div else None
+        first_top = (
+            self._divider_offsets[0][1] if self._divider_offsets
+            else (self._widget_top(first_div) if first_div else None)
+        )
         show_chip = (
             active is not None
             and first_top is not None
@@ -1216,6 +1164,5 @@ class DiaryPage(Adw.Bin):
 
         label = _month_label(active[0]) if active else (
             _month_label(self._days[0]["day"][:7])
-            if self._days else "Jump")
-        if label != self._jump_label.get_text():
-            self._jump_label.set_text(label)
+            if self._days else None)
+        self._jump_month = label
