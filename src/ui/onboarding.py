@@ -2,9 +2,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib, Gio
-
-import threading
+from gi.repository import Gtk, Adw, Gio
 
 from ..domain.onboarding import OnboardingFlow, STEPS
 from .. import config
@@ -20,23 +18,13 @@ STEP_TITLES = {
 THEME_VALUES = ["light", "dark", "default"]
 THEME_LABELS = (("light", "Light"), ("dark", "Dark"), ("default", "Follow System"))
 
-STATUS_COPY = {
-    "valid": "That key works.",
-    "invalid": "TMDB didn't accept that key. Copy it again from your TMDB account.",
-    "unreachable": (
-        "Couldn't reach TMDB. Check your connection and try again, "
-        "or continue and finish setup later."
-    ),
-}
-
 
 class OnboardingWindow(Adw.Window):
     """First-run wizard: TMDB key + appearance, shown before the main app."""
 
-    def __init__(self, settings, tmdb_client, on_finish, application=None):
+    def __init__(self, settings, on_finish, application=None):
         super().__init__(application=application)
         self.settings = settings
-        self.tmdb_client = tmdb_client
         self._on_finish = on_finish
         self._finishing = False
         self.flow = OnboardingFlow()
@@ -160,57 +148,6 @@ class OnboardingWindow(Adw.Window):
         )
         return clamp
 
-    def _page_tmdb(self):
-        box, clamp = self._page_shell()
-        box.append(self._heading(STEP_TITLES["tmdb"]))
-        box.append(
-            self._body(
-                "Ciak pulls titles and posters from The Movie Database. "
-                "Get a free key and paste it below."
-            )
-        )
-
-        self.key_entry = Gtk.Entry()
-        self.key_entry.set_text(self.settings.get_string("tmdb-api-key"))
-        self.key_entry.set_hexpand(True)
-        self.key_entry.set_activates_default(True)
-        self.key_entry.connect("changed", self._on_key_changed)
-        box.append(self.key_entry)
-
-        self.status_label = Gtk.Label(label="")
-        self.status_label.add_css_class("body")
-        self.status_label.set_halign(Gtk.Align.START)
-        self.status_label.set_wrap(True)
-        self.status_label.set_visible(False)
-        box.append(self.status_label)
-
-        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        action_row.set_halign(Gtk.Align.CENTER)
-
-        self.spinner = Adw.Spinner()
-        self.spinner.set_visible(False)
-        action_row.append(self.spinner)
-
-        self.test_btn = Gtk.Button(label="Test connection")
-        self.test_btn.connect("clicked", lambda _b: self._start_validate(False))
-        action_row.append(self.test_btn)
-        box.append(action_row)
-
-        link = Gtk.LinkButton.new_with_label(
-            "https://www.themoviedb.org/settings/api",
-            "Get a key at themoviedb.org",
-        )
-        link.set_halign(Gtk.Align.CENTER)
-        box.append(link)
-
-        skip = Gtk.Button(label="Skip for now")
-        skip.add_css_class("flat")
-        skip.add_css_class("dimmed")
-        skip.set_halign(Gtk.Align.CENTER)
-        skip.connect("clicked", lambda _b: self._on_skip())
-        box.append(skip)
-        return clamp
-
     def _page_appearance(self):
         box, clamp = self._page_shell()
         box.append(self._heading(STEP_TITLES["appearance"]))
@@ -313,65 +250,6 @@ class OnboardingWindow(Adw.Window):
     # ------------------------------------------------------------------
     # Handlers
     # ------------------------------------------------------------------
-
-    def _on_key_changed(self, entry):
-        self.flow.set_key(entry.get_text().strip())
-        self.flow.set_status(None)
-        self.status_label.set_visible(False)
-        self.status_label.remove_css_class("error")
-        self._sync_state()
-
-    def _start_validate(self, advance_on_success):
-        key = self.key_entry.get_text().strip()
-        self.flow.set_key(key)
-        if not key:
-            self.flow.set_status(None)
-            self._sync_state()
-            return
-        self.status_label.set_visible(False)
-        self.test_btn.set_sensitive(False)
-        self.next_btn.set_sensitive(False)
-        self.spinner.set_visible(True)
-        threading.Thread(
-            target=self._validate_worker, args=(key, advance_on_success), daemon=True
-        ).start()
-
-    def _validate_worker(self, key, advance_on_success):
-        status = self.tmdb_client.validate_key()
-        GLib.idle_add(self._apply_validate_result, status, advance_on_success)
-
-    def _apply_validate_result(self, status, advance_on_success):
-        self.spinner.set_visible(False)
-        self.test_btn.set_sensitive(True)
-        self.next_btn.set_sensitive(True)
-        if status == "valid":
-            self._persist_key()
-        self.flow.set_status(status)
-        self._show_status(status)
-        if advance_on_success and status != "invalid":
-            self.flow.go_forward()
-        self._sync_state()
-
-    def _persist_key(self):
-        key = self.key_entry.get_text().strip()
-        if key:
-            self.settings.set_string("tmdb-api-key", key)
-
-    def _show_status(self, status):
-        if not status:
-            self.status_label.set_visible(False)
-            return
-        self.status_label.set_text(STATUS_COPY[status])
-        self.status_label.remove_css_class("error")
-        if status == "invalid":
-            self.status_label.add_css_class("error")
-        self.status_label.set_visible(True)
-
-    def _on_skip(self):
-        self.flow.skip_tmdb()
-        self.status_label.set_visible(False)
-        self.flow.go_forward()
-        self._sync_state()
 
     def _on_theme_changed(self, row, _gparam):
         value = THEME_VALUES[row.get_selected()]

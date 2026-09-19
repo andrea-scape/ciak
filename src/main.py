@@ -101,13 +101,8 @@ class CiakApp(Adw.Application):
     def _show_onboarding(self, settings):
         from .ui.onboarding import OnboardingWindow
 
-        tmdb_client = TmdbClient(
-            settings.get_string("tmdb-api-key"),
-            hide_adult_fn=lambda: settings.get_boolean("hide-adult-content"),
-        )
         self._onboarding_win = OnboardingWindow(
             settings,
-            tmdb_client,
             on_finish=self._build_main_window,
             application=self,
         )

@@ -82,21 +82,6 @@ class TmdbClient:
             return default
         return f"{IMAGE_BASE}/{size}{path}"
 
-    def validate_key(self) -> str:
-        """Return "valid", "invalid", or "unreachable" for the configured key."""
-        try:
-            resp = self._http().get(
-                f"{TMDB_BASE}/configuration", params={"api_key": self._api_key}
-            )
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 401:
-                return "invalid"
-            return "unreachable"
-        except httpx.HTTPError:
-            return "unreachable"
-        return "valid"
-
     # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------

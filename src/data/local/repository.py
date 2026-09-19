@@ -11,7 +11,6 @@ import sqlite3
 import threading
 import time
 
-from ...domain.exceptions import RepositoryError
 from ...domain.models import Stats
 
 _log = logging.getLogger(__name__)
