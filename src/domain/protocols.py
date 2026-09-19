@@ -113,14 +113,6 @@ class MetadataService(Protocol):
         """Return currently trending titles (movies, shows, or both)."""
         ...
 
-    def get_popular_movies(self) -> list["Movie"]:
-        """Return the most popular movies currently."""
-        ...
-
-    def get_popular_shows(self) -> list["Show"]:
-        """Return the most popular TV shows currently."""
-        ...
-
     def get_movie(self, tmdb_id: int) -> "Movie":
         """Return full detail for a single movie."""
         ...
@@ -157,8 +149,4 @@ class MetadataService(Protocol):
 
     def get_collection(self, collection_id: int) -> "Collection | None":
         """Return a TMDB movie collection (saga/franchise) and its parts."""
-        ...
-
-    def get_calendar(self) -> list:
-        """Return upcoming episodes for the current week (calendar view)."""
         ...

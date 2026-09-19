@@ -430,28 +430,6 @@ class TmdbMetadataService:
         self._cache.put_trending_payloads("recent_show", items[:12])
         return [self._raw_to_show(item) for item in items]
 
-    def get_popular_movies(self) -> list[Movie]:
-        try:
-            data = self._client.get_popular_movies()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise NetworkError(f"Failed to fetch popular movies: {exc}") from exc
-        return [self._raw_to_movie(item) for item in data.get("results", [])]
-
-    def get_popular_shows(self) -> list[Show]:
-        try:
-            data = self._client.get_popular_tv()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise NetworkError(f"Failed to fetch popular shows: {exc}") from exc
-        return [self._raw_to_show(item) for item in data.get("results", [])]
-
-    def get_calendar(self) -> list:
-        """Return upcoming TV episodes (on the air)."""
-        try:
-            data = self._client.get_upcoming_tv()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise NetworkError(f"Failed to fetch calendar: {exc}") from exc
-        return [self._raw_to_show(item) for item in data.get("results", [])]
-
     def get_latest_season_episodes(self, show_tmdb_id: int):
         seasons = self.get_show_seasons(show_tmdb_id)
         latest = 0

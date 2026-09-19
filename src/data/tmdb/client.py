@@ -138,12 +138,6 @@ class TmdbClient:
     def get_trending(self, media_type: str = "all", time_window: str = "week") -> dict:
         return self._get(f"/trending/{media_type}/{time_window}")
 
-    def get_popular_movies(self, page: int = 1) -> dict:
-        return self._get("/movie/popular", {"page": page})
-
-    def get_popular_tv(self, page: int = 1) -> dict:
-        return self._get("/tv/popular", {"page": page})
-
     def get_movie_similar(self, movie_id: int, page: int = 1) -> dict:
         return self._get(f"/movie/{movie_id}/similar", {"page": page})
 
@@ -183,9 +177,6 @@ class TmdbClient:
         if year_max:
             params["first_air_date.lte"] = f"{year_max}-12-31"
         return self._get("/discover/tv", params)
-
-    def get_upcoming_tv(self, page: int = 1) -> dict:
-        return self._get("/tv/on_the_air", {"page": page})
 
     def get_collection(self, collection_id: int) -> dict:
         return self._get(f"/collection/{collection_id}")
