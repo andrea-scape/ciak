@@ -14,7 +14,14 @@ from ..domain.exceptions import NetworkError
 from ..domain.models import Episode
 from . import watched_state
 from .genre_chips import GenreChipsRow, item_genre_names, matches_all
-from .media_card import add_watched_badge, config_grid, make_media_card, PAGE_GUTTER_PX
+from .media_card import (
+    POSTER_H,
+    POSTER_W,
+    add_watched_badge,
+    config_grid,
+    make_media_card,
+    PAGE_GUTTER_PX,
+)
 from . import scroll_restore
 from . import page_reveal
 from . import poster
@@ -29,10 +36,6 @@ from .anim import (
     rise_fade_in,
 )
 from .shared_widgets import make_error_row
-
-
-POSTER_W = 160
-POSTER_H = 240
 
 
 class WatchlistPage(Gtk.Box):

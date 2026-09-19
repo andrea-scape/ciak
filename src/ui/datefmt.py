@@ -12,7 +12,7 @@ _MONTHS_SHORT = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ]
-_MONTHS_FULL = [
+MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June", "July",
     "August", "September", "October", "November", "December",
 ]
@@ -33,8 +33,8 @@ def format_date_long(d, american=False):
     """Saturday, 15 August 2026 / Saturday, August 15, 2026."""
     wd = _WEEKDAYS[d.weekday()]
     if american:
-        return f"{wd}, {_MONTHS_FULL[d.month - 1]} {d.day}, {d.year}"
-    return f"{wd}, {d.day} {_MONTHS_FULL[d.month - 1]} {d.year}"
+        return f"{wd}, {MONTH_NAMES[d.month - 1]} {d.day}, {d.year}"
+    return f"{wd}, {d.day} {MONTH_NAMES[d.month - 1]} {d.year}"
 
 
 def format_day_short(d, american=False):

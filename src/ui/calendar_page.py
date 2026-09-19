@@ -15,15 +15,11 @@ from .media_card import card_poster_url
 from .poster import create_poster, load_poster
 from . import scroll_restore
 from . import datefmt
+from .shared_widgets import clear_children
 
 MONTHS_SHORT = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-]
-MONTHS_FULL = [
-    "January", "February", "March", "April",
-    "May", "June", "July", "August",
-    "September", "October", "November", "December",
 ]
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -166,7 +162,7 @@ class CalendarPage(Gtk.Box):
         box.set_margin_end(12)
 
         header = Gtk.Label()
-        header.set_markup(f"<b>{MONTHS_FULL[self._month - 1]} {self._year}</b>")
+        header.set_markup(f"<b>{datefmt.MONTH_NAMES[self._month - 1]} {self._year}</b>")
         header.set_halign(Gtk.Align.START)
         box.append(header)
 
@@ -395,11 +391,7 @@ class CalendarPage(Gtk.Box):
     # ------------------------------------------------------------------
 
     def _render_month(self):
-        while True:
-            child = self._grid.get_first_child()
-            if child is None:
-                break
-            self._grid.remove(child)
+        clear_children(self._grid)
 
         for i, name in enumerate(WEEKDAYS):
             lbl = Gtk.Label(label=name)
@@ -590,7 +582,7 @@ class CalendarPage(Gtk.Box):
             f'<span size="small" alpha="60%">{self._year}</span>'
         )
         self._month_label.set_markup(
-            f'<span size="x-large" weight="bold">{MONTHS_FULL[self._month - 1]}</span>'
+            f'<span size="x-large" weight="bold">{datefmt.MONTH_NAMES[self._month - 1]}</span>'
         )
 
         prev_m = self._month - 1

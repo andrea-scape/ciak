@@ -8,7 +8,7 @@ from ..domain.exceptions import NetworkError
 from .media_card import make_media_card, config_grid, PAGE_GUTTER_PX
 from . import scroll_restore
 from .anim import CONTENT_MS, CONTENT_PX, rise_fade_in
-from .shared_widgets import make_error_row
+from .shared_widgets import clear_children, make_error_row
 
 
 class CollectionPage(Adw.Bin):
@@ -201,11 +201,7 @@ class CollectionPage(Adw.Bin):
         return False
 
     def _clear(self):
-        child = self.grid.get_first_child()
-        while child:
-            nxt = child.get_next_sibling()
-            self.grid.remove(child)
-            child = nxt
+        clear_children(self.grid)
         if self._error_label is not None:
             parent = self._error_label.get_parent()
             if parent is not None:

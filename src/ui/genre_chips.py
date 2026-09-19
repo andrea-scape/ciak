@@ -7,6 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw
+from .shared_widgets import clear_children
 
 
 TMDB_GENRE_NAMES = {
@@ -62,11 +63,7 @@ class GenreChipsRow(Adw.WrapBox):
     def show_placeholder(self, count=6):
         """Visible pulsing pills while the real genre pool loads. The next
         real set_genres() call replaces them."""
-        child = self.get_first_child()
-        while child:
-            nxt = child.get_next_sibling()
-            self.remove(child)
-            child = nxt
+        clear_children(self)
         for _ in range(count):
             pill = Gtk.Label(label="")
             pill.set_size_request(64, 26)
@@ -82,11 +79,7 @@ class GenreChipsRow(Adw.WrapBox):
             return
         self._pool = pool
         self._selected &= set(pool)
-        child = self.get_first_child()
-        while child:
-            nxt = child.get_next_sibling()
-            self.remove(child)
-            child = nxt
+        clear_children(self)
         for name in pool:
             btn = Gtk.ToggleButton(label=name)
             btn.add_css_class("chip-toggle")

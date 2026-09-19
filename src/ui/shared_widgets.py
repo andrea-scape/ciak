@@ -25,3 +25,12 @@ def make_error_row(message, on_retry, icon_name="network-error-symbolic"):
     box.append(btn)
 
     return box
+
+
+def clear_children(widget):
+    """Remove every child of a Gtk widget."""
+    child = widget.get_first_child()
+    while child:
+        nxt = child.get_next_sibling()
+        widget.remove(child)
+        child = nxt

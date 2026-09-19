@@ -21,6 +21,7 @@ from . import page_reveal
 from . import poster as poster_mod
 from . import scroll_restore
 from . import datefmt
+from .shared_widgets import clear_children
 
 
 # ---------------------------------------------------------------------------
@@ -62,10 +63,6 @@ _WEEKDAYS = [
     "Monday", "Tuesday", "Wednesday", "Thursday",
     "Friday", "Saturday", "Sunday",
 ]
-_MONTHS = [
-    "January", "February", "March", "April", "May", "June", "July",
-    "August", "September", "October", "November", "December",
-]
 
 
 def format_day_header(day_iso, ref=None, american=False):
@@ -101,7 +98,7 @@ def build_month_summaries(days):
         while j < n and days[j]["day"][:7] == month:
             j += 1
         block = days[i:j]
-        label = f"{_MONTHS[int(month[5:]) - 1]} {month[:4]}"
+        label = f"{datefmt.MONTH_NAMES[int(month[5:]) - 1]} {month[:4]}"
         out[month] = (
             label,
             sum(b["item_count"] for b in block),
@@ -123,7 +120,7 @@ def note_snippet(text, maxlen=40):
 def _month_label(month_key):
     """'2026-03' -> 'March 2026' (pure, tested)."""
     try:
-        return f"{_MONTHS[int(month_key[5:]) - 1]} {month_key[:4]}"
+        return f"{datefmt.MONTH_NAMES[int(month_key[5:]) - 1]} {month_key[:4]}"
     except (ValueError, IndexError, TypeError):
         return month_key or ""
 
@@ -757,8 +754,7 @@ class DiaryPage(Adw.Bin):
             self._restore_y = 0.0
             self._anchor_day = None
         self._user_nav = False
-        while (child := self._list.get_first_child()) is not None:
-            self._list.remove(child)
+        clear_children(self._list)
         self._dividers.clear()
         self._divider_offsets.clear()
         self._groups.clear()
