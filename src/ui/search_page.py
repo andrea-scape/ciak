@@ -1,7 +1,5 @@
 import gi
 
-import os
-
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib
@@ -369,12 +367,6 @@ class SearchPage(Adw.Bin):
                 self.user_repo, self.metadata_service,
                 {s.tmdb_id for s in shows},
             )
-            if os.environ.get("CIK_DEBUG"):
-                matched = sum(1 for m in movies
-                              if m.tmdb_id in watched_movie_ids)
-                print(f"[search] badges: movie_results_matched={matched} "
-                      f"show_results={len(shows)} "
-                      f"caught_up={len(fully_shows)}")
             if fully_shows:
                 GLib.idle_add(self._apply_late_badges, fully_shows)
         except NetworkError as e:
@@ -391,8 +383,6 @@ class SearchPage(Adw.Bin):
             g for it in self._result_movies + self._result_shows
             for g in item_genre_names(it)
         })
-        if os.environ.get("CIK_DEBUG"):
-            print(f"[search] {len(pool)} genres for chips: {pool}")
         self.genre_chips.set_genres(iter(pool))
         selected = self.genre_chips.selected
         if selected:

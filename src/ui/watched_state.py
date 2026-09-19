@@ -219,8 +219,6 @@ def _fan_out_checks(user_repo, metadata_service, candidate_ids, check_fn,
     back to the main thread themselves."""
     from concurrent.futures import as_completed
 
-    import os
-
     from ..threads import submit as _submit_worker
 
     if candidate_ids is None:
@@ -237,14 +235,11 @@ def _fan_out_checks(user_repo, metadata_service, candidate_ids, check_fn,
             return show_id if check_fn(
                 user_repo, metadata_service, show_id
             ) else None
-        except Exception as exc:
-            if os.environ.get("CIK_DEBUG"):
-                print(f"[watched] check failed for {show_id}: {exc!r}")
+        except Exception:
             return None
 
     futures = {_submit_worker(_check, sid): sid for sid in candidate_ids}
     found = set()
-    rejected = []
     for fut in as_completed(futures):
         sid = futures[fut]
         try:
@@ -254,16 +249,11 @@ def _fan_out_checks(user_repo, metadata_service, candidate_ids, check_fn,
         passed = res is not None
         if passed:
             found.add(res)
-        else:
-            rejected.append(sid)
         if on_result is not None:
             try:
                 on_result(sid, passed)
             except Exception:
                 pass
-    if os.environ.get("CIK_DEBUG"):
-        print(f"[watched] checked={len(candidate_ids)} passed={len(found)} "
-              f"failed={len(rejected)}")
     return found
 
 

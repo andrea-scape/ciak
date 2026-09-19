@@ -95,10 +95,7 @@ def find_due_airings(
         sid = s["tmdb_id"]
         if not _included(sid, "show"):
             continue
-        try:
-            episodes = metadata_service.get_latest_season_episodes(sid)
-        except Exception:
-            raise
+        episodes = metadata_service.get_latest_season_episodes(sid)
         if not episodes:
             continue
         if sid not in watched_cache:

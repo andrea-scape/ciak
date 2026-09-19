@@ -411,7 +411,6 @@ class DetailPage(Gtk.Box):
     def _create_related_skeleton(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         # homogeneous=True, halign=FILL (default) - adaptive even spacing.
-        # OLD config (backup): homogeneous=False, halign=START, min2/max5
         flow = Gtk.FlowBox()
         flow.set_selection_mode(Gtk.SelectionMode.NONE)
         flow.set_homogeneous(True)
@@ -455,7 +454,6 @@ class DetailPage(Gtk.Box):
     def _create_cast_skeleton(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         # homogeneous=True, halign=FILL (default) - adaptive even spacing.
-        # OLD config (backup): homogeneous=False, halign=START, spacing 12/12
         flow = Gtk.FlowBox()
         flow.set_selection_mode(Gtk.SelectionMode.NONE)
         flow.set_homogeneous(True)
@@ -1139,7 +1137,6 @@ class DetailPage(Gtk.Box):
         self.related_revealer.set_child(inner)
 
         # homogeneous=True, halign=FILL (default) - adaptive even spacing.
-        # OLD config (backup): homogeneous=False, halign=START, min2/max5
         flow = Gtk.FlowBox()
         flow.set_selection_mode(Gtk.SelectionMode.NONE)
         flow.set_homogeneous(True)
@@ -1234,7 +1231,6 @@ class DetailPage(Gtk.Box):
         self.cast_revealer.set_child(inner)
 
         # homogeneous=True, halign=FILL (default) - adaptive even spacing.
-        # OLD config (backup): homogeneous=False, halign=START, spacing 12/12
         flow = Gtk.FlowBox()
         flow.set_selection_mode(Gtk.SelectionMode.NONE)
         flow.set_homogeneous(True)

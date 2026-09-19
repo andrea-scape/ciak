@@ -641,7 +641,6 @@ class WatchlistPage(Gtk.Box):
         except Exception as e:
             # Never let a fetch thread die silently and leave the page on
             # its skeleton forever.
-            print(f"[watchlist] load failed: {e!r}")
             GLib.idle_add(self._show_error, str(e))
 
     def _late_hidden(self, token, movies, shows):

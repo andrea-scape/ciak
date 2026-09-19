@@ -1,7 +1,6 @@
 """History: watchlist-style gallery of watched movies and watched episodes."""
 
 import datetime
-import os
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -83,13 +82,9 @@ class HistoryPage(WatchlistPage):
         check resolves instead of waiting for the whole batch; computed
         off-thread so rendering never waits."""
         show_ids = {s.tmdb_id for s in shows}
-        if os.environ.get("CIK_DEBUG"):
-            print(f"[history] requesting watched checks for {len(show_ids)} shows")
-        passed = set()
 
         def _on_result(show_id, caught_up):
             if caught_up:
-                passed.add(show_id)
                 GLib.idle_add(
                     self._apply_late_badges, self._reload_token, {show_id}
                 )
@@ -98,7 +93,4 @@ class HistoryPage(WatchlistPage):
             self.user_repo, self.metadata_service, show_ids,
             on_result=_on_result,
         )
-        if os.environ.get("CIK_DEBUG"):
-            print(f"[history] badges: requested={len(show_ids)} "
-                  f"passed={len(passed)}")
         return frozenset()
