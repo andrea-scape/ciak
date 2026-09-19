@@ -561,57 +561,6 @@ class WatchlistPage(Gtk.Box):
                 found.add(res)
         return found
 
-    def _get_items(self, mode):
-        """Return (movies, shows) for the current mode. Subclasses override."""
-        watched_movie_ids = self.user_repo.get_watched_ids("movie")
-        fully_watched_show_ids = self._get_fully_watched_show_ids()
-
-        if mode == "all":
-            movies = self._dicts_to_items(self.user_repo.get_watchlist("movie"))
-            shows = self._dicts_to_items(self.user_repo.get_watchlist("show"))
-        elif mode == "movies":
-            movies = self._dicts_to_items(self.user_repo.get_watchlist("movie"))
-            shows = []
-        else:
-            movies = []
-            shows = self._dicts_to_items(self.user_repo.get_watchlist("show"))
-
-        # Include shows the user is actively watching (has watched episodes)
-        # even if they're not explicitly on the watchlist.
-        if mode != "movies":
-            existing_ids = {s.tmdb_id for s in shows}
-            watching = self._dicts_to_items(
-                self.user_repo.get_currently_watching_shows()
-            )
-            for w in watching:
-                if w.tmdb_id not in existing_ids:
-                    shows.append(w)
-
-        hide_unreleased = self._hide_unreleased_enabled()
-        if hide_unreleased:
-            movies = [m for m in movies
-                      if not self._is_unreleased(m.tmdb_id, "movie")]
-            shows = [s for s in shows
-                     if not self._is_unreleased(s.tmdb_id, "show")]
-
-        movies = [i for i in movies if i.tmdb_id not in watched_movie_ids]
-        shows = [i for i in shows if i.tmdb_id not in fully_watched_show_ids]
-
-        # Hide caught-up ongoing shows with no upcoming episodes within window
-        if self._hide_caught_up and self.win.settings.get_boolean(
-            "hide-shows-no-upcoming-episodes"
-        ):
-            window = self.win.settings.get_int("hide-shows-upcoming-window") or 14
-            hidden = set()
-            for s in shows:
-                if watched_state.should_hide_show(
-                    self.user_repo, self.metadata_service, s.tmdb_id, window
-                ):
-                    hidden.add(s.tmdb_id)
-            shows = [s for s in shows if s.tmdb_id not in hidden]
-
-        return movies, shows
-
     def _get_items_unfiltered(self, mode):
         """Local-data item list for the first render: no network-gated
         filters (unreleased / caught-up hiding run post-render instead).
@@ -959,11 +908,6 @@ class WatchlistPage(Gtk.Box):
         self.movies_grid.queue_resize()
         self.shows_grid.queue_resize()
         return False
-
-    def _drain_build(self):
-        """Synchronously finish any pending card building (tests)."""
-        while getattr(self, "_pending_chunk", None) is not None:
-            self._pump_build(schedule=False)
 
     def _show_section_header(self, section):
         """Reveal a section header the first time one of its cards paints

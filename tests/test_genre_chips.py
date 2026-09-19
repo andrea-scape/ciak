@@ -35,6 +35,11 @@ from src.ui.search_page import SearchPage
 from src.data.local.repository import LocalMediaRepository
 
 
+def _drain(page):
+    while getattr(page, "_pending_chunk", None) is not None:
+        page._pump_build(schedule=False)
+
+
 def setUpModule():
     # These tests assert end state (visibility, card contents), not motion.
     # With animations on, grid rebuilds defer behind a short fade.
@@ -465,11 +470,11 @@ class ChipsAttachmentTest(unittest.TestCase):
         with mock.patch("gi.repository.GLib.Thread.new"):
             page = SearchPage(object(), _FakeRepo(), object(), None)
         page._populate([_item(1, "A", genre_ids=[28]), _item(2, "B", genre_ids=[18])], [])
-        page._drain_build()
+        _drain(page)
         page._clear()
         # second search repopulates; row must still be shown and attached
         page._populate([_item(3, "C", genre_ids=[28]), _item(4, "D", genre_ids=[35])], [])
-        page._drain_build()
+        _drain(page)
         self.assertTrue(page.genre_chips.get_visible())
         self.assertIs(page.genre_chips.get_parent(), page.genre_chips.get_parent())
         holder = page.genre_chips.get_parent()

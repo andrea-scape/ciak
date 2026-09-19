@@ -495,11 +495,6 @@ class SearchPage(Adw.Bin):
         self._reveal_page()
         return False
 
-    def _drain_build(self):
-        """Synchronously finish any pending card building (tests)."""
-        while getattr(self, "_pending_chunk", None) is not None:
-            self._pump_build(schedule=False)
-
     def _apply_late_badges(self, fully_ids):
         """Retrofit watched badges onto rendered show cards."""
         prev = frozenset(getattr(self, "_last_fully_shows", frozenset()))

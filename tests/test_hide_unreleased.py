@@ -108,8 +108,10 @@ class HideUnreleasedTest(unittest.TestCase):
         return page
 
     def _ids(self, page):
-        movies, shows = page._get_items("all")
-        return ([m.tmdb_id for m in movies], [s.tmdb_id for s in shows])
+        movies, shows = page._get_items_unfiltered("all")
+        hidden_m, hidden_s = page._compute_late_hidden(movies, shows)
+        return ([m.tmdb_id for m in movies if m.tmdb_id not in hidden_m],
+                [s.tmdb_id for s in shows if s.tmdb_id not in hidden_s])
 
     def test_flag_on_hides_future_titles(self):
         page = self._page(hide=True)
@@ -129,8 +131,10 @@ class HideUnreleasedTest(unittest.TestCase):
         win = SimpleNamespace(settings=_Settings(True))
         with mock.patch("gi.repository.GLib.Thread.new"):
             page = WatchlistPage(win, repo, meta, None)
-        movies, _shows = page._get_items("all")
-        self.assertEqual([m.tmdb_id for m in movies], [9])
+        movies, shows = page._get_items_unfiltered("all")
+        hidden_m, _hidden_s = page._compute_late_hidden(movies, shows)
+        visible = [m.tmdb_id for m in movies if m.tmdb_id not in hidden_m]
+        self.assertEqual(visible, [9])
 
 
 class WatchlistOrderByActionTest(unittest.TestCase):
