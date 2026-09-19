@@ -20,6 +20,30 @@ from ...domain.models import Movie, Show, Season, Episode, StreamingInfo, Stream
 
 _CACHE_TABLES: list[str] = []
 
+# Field subsets shared across the media <-> row / dict conversions below.
+_MEDIA_COMMON_FIELDS = (
+    "tmdb_id", "title", "year", "overview", "runtime", "rating", "votes",
+    "poster_url", "backdrop_url", "imdb_id", "tagline", "certification",
+)
+_MOVIE_ONLY_FIELDS = (
+    "release_date", "collection_id", "collection_name", "budget", "revenue",
+)
+_SHOW_ONLY_FIELDS = (
+    "status", "next_episode_air_date", "next_episode_season",
+    "next_episode_number", "next_episode_name", "next_episode_still",
+    "creators",
+)
+
+
+def _as_json_list(value):
+    """Coerce a DB/JSON value to a plain list for model fields."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            value = []
+    return list(value or [])
+
 
 def _cache_table(sql: str) -> str:
     _CACHE_TABLES.append(sql)
@@ -265,37 +289,9 @@ class MetadataCache:
     def put_media(self, media: Movie | Show) -> None:
         """Store or update a media item in the cache."""
         now = int(time.time())
-        fields = {
-            "tmdb_id": media.tmdb_id,
-            "media_type": media.media_type,
-            "title": media.title,
-            "year": media.year,
-            "release_date": getattr(media, "release_date", None),
-            "overview": media.overview,
-            "runtime": getattr(media, "runtime", None),
-            "rating": media.rating,
-            "votes": media.votes,
-            "poster_url": media.poster_url,
-            "backdrop_url": media.backdrop_url,
-            "imdb_id": media.imdb_id,
-            "genres": json.dumps(media.genres or []),
-            "genre_ids": json.dumps(media.genre_ids or []),
-            "collection_id": getattr(media, "collection_id", None),
-            "collection_name": getattr(media, "collection_name", None),
-            "tagline": getattr(media, "tagline", None),
-            "certification": getattr(media, "certification", None),
-            "status": getattr(media, "status", None),
-            "next_episode_air_date": getattr(media, "next_episode_air_date", None),
-            "next_episode_season": getattr(media, "next_episode_season", None),
-            "next_episode_number": getattr(media, "next_episode_number", None),
-            "next_episode_name": getattr(media, "next_episode_name", None),
-            "next_episode_still": getattr(media, "next_episode_still", None),
-            "budget": getattr(media, "budget", None),
-            "revenue": getattr(media, "revenue", None),
-            "creators": json.dumps(getattr(media, "creators", []) or []),
-            "cached_at": now,
-            "updated_at": now,
-        }
+        fields = self._media_to_row(media)
+        fields["cached_at"] = now
+        fields["updated_at"] = now
         self._ensure_conn().execute(
             """
             INSERT OR REPLACE INTO media_items
@@ -445,7 +441,7 @@ class MetadataCache:
             overview=row["overview"],
             poster_path=row["poster_path"],
             backdrop_path=row["backdrop_path"],
-            parts=[self._dict_to_media(m) for m in json.loads(row["parts_json"] or "[]")],
+            parts=[self._from_media_dict(m) for m in json.loads(row["parts_json"] or "[]")],
         )
 
     def put_collection(self, collection: Collection) -> None:
@@ -470,33 +466,32 @@ class MetadataCache:
         self._ensure_conn().commit()
 
     @staticmethod
+    def _media_to_row(m: Movie | Show) -> dict:
+        """Project a model onto the media_items row columns (JSON-encoded)."""
+        fields = {"media_type": m.media_type}
+        for name in _MEDIA_COMMON_FIELDS + _MOVIE_ONLY_FIELDS + _SHOW_ONLY_FIELDS:
+            fields[name] = getattr(m, name, None)
+        fields["genres"] = json.dumps(m.genres or [])
+        fields["genre_ids"] = json.dumps(m.genre_ids or [])
+        fields["creators"] = json.dumps(getattr(m, "creators", []) or [])
+        return fields
+
+    @staticmethod
     def _media_to_dict(m: Movie | Show) -> dict:
-        fields = {
-            "tmdb_id": m.tmdb_id,
-            "media_type": m.media_type,
-            "title": m.title,
-            "year": m.year,
-            "release_date": getattr(m, "release_date", None),
-            "overview": m.overview,
-            "runtime": getattr(m, "runtime", None),
-            "rating": m.rating,
-            "votes": m.votes,
-            "poster_url": m.poster_url,
-            "backdrop_url": m.backdrop_url,
-            "imdb_id": m.imdb_id,
-            "genres": list(m.genres or []),
-            "genre_ids": list(m.genre_ids or []),
-            "collection_id": getattr(m, "collection_id", None),
-            "collection_name": getattr(m, "collection_name", None),
-            "tagline": getattr(m, "tagline", None),
-            "certification": getattr(m, "certification", None),
-        }
+        fields = {"media_type": m.media_type}
+        for name in _MEDIA_COMMON_FIELDS:
+            fields[name] = getattr(m, name, None)
+        fields["release_date"] = getattr(m, "release_date", None)
+        fields["genres"] = list(m.genres or [])
+        fields["genre_ids"] = list(m.genre_ids or [])
+        fields["collection_id"] = getattr(m, "collection_id", None)
+        fields["collection_name"] = getattr(m, "collection_name", None)
         if m.media_type == "show":
             fields["status"] = getattr(m, "status", None)
         return fields
 
     @classmethod
-    def _dict_to_media(cls, d: dict) -> Movie | Show:
+    def _from_media_dict(cls, d: dict) -> Movie | Show:
         common = {
             "tmdb_id": d.get("tmdb_id"),
             "title": d.get("title", ""),
@@ -508,21 +503,21 @@ class MetadataCache:
             "poster_url": d.get("poster_url"),
             "backdrop_url": d.get("backdrop_url"),
             "imdb_id": d.get("imdb_id"),
-            "genres": list(d.get("genres") or []),
-            "genre_ids": list(d.get("genre_ids") or []),
+            "genres": _as_json_list(d.get("genres")),
+            "genre_ids": _as_json_list(d.get("genre_ids")),
             "tagline": d.get("tagline"),
             "certification": d.get("certification"),
         }
         if d.get("media_type") == "show":
-            return Show(status=d.get("status"), **common)
-        return Movie(
-            collection_id=d.get("collection_id"),
-            collection_name=d.get("collection_name"),
-            release_date=d.get("release_date"),
-            budget=d.get("budget"),
-            revenue=d.get("revenue"),
-            **common,
-        )
+            extra = {
+                name: d.get(name) for name in _SHOW_ONLY_FIELDS
+            }
+            extra["creators"] = _as_json_list(extra["creators"])
+            return Show(**extra, **common)
+        extra = {
+            name: d.get(name) for name in _MOVIE_ONLY_FIELDS
+        }
+        return Movie(**extra, **common)
 
     # ------------------------------------------------------------------
     # Seasons
@@ -629,41 +624,7 @@ class MetadataCache:
 
     @staticmethod
     def _row_to_media(row) -> Movie | Show:
-        common = {
-            "tmdb_id": row["tmdb_id"],
-            "title": row["title"],
-            "year": row["year"],
-            "overview": row["overview"],
-            "runtime": row["runtime"],
-            "rating": row["rating"],
-            "votes": row["votes"],
-            "poster_url": row["poster_url"],
-            "backdrop_url": row["backdrop_url"],
-            "imdb_id": row["imdb_id"],
-            "genres": json.loads(row["genres"] or "[]"),
-            "genre_ids": json.loads(row["genre_ids"] or "[]"),
-            "tagline": row["tagline"],
-            "certification": row["certification"],
-        }
-        if row["media_type"] == "show":
-            return Show(
-                status=row["status"],
-                next_episode_air_date=row["next_episode_air_date"],
-                next_episode_season=row["next_episode_season"],
-                next_episode_number=row["next_episode_number"],
-                next_episode_name=row["next_episode_name"],
-                next_episode_still=row["next_episode_still"],
-                creators=json.loads(row["creators"] or "[]"),
-                **common,
-            )
-        return Movie(
-            collection_id=row["collection_id"],
-            collection_name=row["collection_name"],
-            release_date=row["release_date"],
-            budget=row["budget"],
-            revenue=row["revenue"],
-            **common,
-        )
+        return MetadataCache._from_media_dict(dict(row))
 
     @staticmethod
     def _row_to_season(row) -> Season:
