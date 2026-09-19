@@ -276,7 +276,7 @@ class TmdbMetadataService:
 
     def get_related_movies(self, tmdb_id: int) -> list[Movie]:
         source = self.get_movie(tmdb_id)
-        priority, secondary = [], []
+        priority = []
 
         # Collection / saga items first
         if source.collection_id:
@@ -289,31 +289,13 @@ class TmdbMetadataService:
             except NetworkError:
                 pass
 
-        # Genre + year discover
-        try:
-            if source.genre_ids and source.year:
-                data = self._client.discover_movie(
-                    genre_ids=source.genre_ids,
-                    year_min=source.year - 7,
-                    year_max=source.year + 7,
-                )
-            else:
-                data = self._client.get_movie_similar(tmdb_id)
-        except (httpx.HTTPError, ValueError) as exc:
-            if not priority:
-                raise NetworkError(f"Failed to fetch related for {tmdb_id}: {exc}") from exc
-            data = {}
-
-        secondary = [
-            item for item in data.get("results", [])
-            if item.get("id") != tmdb_id
-        ]
-        if source.year:
-            lo, hi = source.year - 7, source.year + 7
-            secondary = [
-                item for item in secondary
-                if (y := self._result_year(item)) is not None and lo <= y <= hi
-            ]
+        secondary = self._related_items(
+            tmdb_id,
+            source,
+            discover_fn=self._client.discover_movie,
+            fallback_fn=self._client.get_movie_similar,
+            raise_on_error=not priority,
+        )
 
         seen = {m.tmdb_id for m in priority}
         merged = priority[:]
@@ -333,7 +315,8 @@ class TmdbMetadataService:
         )
         return [self._raw_to_show(item) for item in results]
 
-    def _related_items(self, tmdb_id, source, discover_fn, fallback_fn) -> list[dict]:
+    def _related_items(self, tmdb_id, source, discover_fn, fallback_fn,
+                   raise_on_error=True) -> list[dict]:
         """Return items sharing source genres and released within +/-7 years.
 
         Uses TMDB discover when the source has both genres and a year; falls
@@ -350,7 +333,9 @@ class TmdbMetadataService:
             else:
                 data = fallback_fn(tmdb_id)
         except (httpx.HTTPError, ValueError) as exc:
-            raise NetworkError(f"Failed to fetch related for {tmdb_id}: {exc}") from exc
+            if raise_on_error:
+                raise NetworkError(f"Failed to fetch related for {tmdb_id}: {exc}") from exc
+            data = {}
         results = [item for item in data.get("results", []) if item.get("id") != tmdb_id]
         if source.year:
             lo, hi = source.year - 7, source.year + 7

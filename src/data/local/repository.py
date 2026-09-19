@@ -15,6 +15,14 @@ from ...domain.models import Stats
 
 _log = logging.getLogger(__name__)
 
+# The four user-data tables holding trakt-derived state.
+USER_TABLES = (
+    "watched_items",
+    "watchlist_items",
+    "ratings",
+    "collection_items",
+)
+
 
 class LocalMediaRepository:
     """Persistent local store for user media state.
@@ -1001,13 +1009,9 @@ class LocalMediaRepository:
 
     def find_media_by_imdb_id(self, imdb_id: str) -> dict | None:
         """Return a media cache row matched by IMDb id, if any."""
-        conn = self._ensure_conn()
-        row = conn.execute(
-            "SELECT tmdb_id, media_type, title, year, imdb_id "
-            "FROM media_items WHERE lower(imdb_id) = lower(?)",
-            (imdb_id,),
-        ).fetchone()
-        return dict(row) if row else None
+        return self._find_media(
+            "WHERE lower(imdb_id) = lower(?)", (imdb_id,)
+        )
 
     def find_media_by_title_year(
         self, title: str, year: int | None
@@ -1015,11 +1019,18 @@ class LocalMediaRepository:
         """Return a media cache row matched by normalized title and year."""
         if not title:
             return None
+        params = (title, int(year)) if year is not None else (title, year)
+        return self._find_media(
+            "WHERE lower(title) = lower(?) AND year = ?", params
+        )
+
+    def _find_media(self, where: str, params: tuple) -> dict | None:
+        """Shared SELECT-by-predicate for the find_media_by_* helpers."""
         conn = self._ensure_conn()
         row = conn.execute(
             "SELECT tmdb_id, media_type, title, year, imdb_id "
-            "FROM media_items WHERE lower(title) = lower(?) AND year = ?",
-            (title, int(year)) if year is not None else (title, year),
+            f"FROM media_items {where}",
+            params,
         ).fetchone()
         return dict(row) if row else None
 
@@ -1107,6 +1118,22 @@ class LocalMediaRepository:
         conn.commit()
         return count
 
+    def _decode_row(self, row: dict) -> tuple | None:
+        """Pull the shared import fields out of a trakt-format row.
+
+        Returns a (tmdb_id, media_type, title, year, imdb_id) tuple, or
+        None when the row has no usable tmdb_id (skipped by callers).
+        """
+        if not row.get("tmdb_id"):
+            return None
+        return (
+            int(row["tmdb_id"]),
+            row.get("media_type") or "movie",
+            row.get("title") or "",
+            row.get("year"),
+            row.get("imdb_id"),
+        )
+
     def _upsert_media_meta(
         self, conn, tmdb_id: int, media_type: str, title: str,
         year: int | None, imdb_id: str | None
@@ -1145,13 +1172,10 @@ class LocalMediaRepository:
         count = 0
         with conn:
             for row in rows:
-                if not row.get("tmdb_id"):
+                decoded = self._decode_row(row)
+                if decoded is None:
                     continue
-                tmdb_id = int(row["tmdb_id"])
-                media_type = row.get("media_type") or "movie"
-                title = row.get("title") or ""
-                year = row.get("year")
-                imdb_id = row.get("imdb_id")
+                tmdb_id, media_type, title, year, imdb_id = decoded
                 watched_at = int(row.get("watched_at") or int(time.time()))
                 show_tmdb_id = row.get("show_tmdb_id")
                 season_number = row.get("season_number")
@@ -1232,13 +1256,10 @@ class LocalMediaRepository:
         count = 0
         with conn:
             for row in rows:
-                if not row.get("tmdb_id"):
+                decoded = self._decode_row(row)
+                if decoded is None:
                     continue
-                tmdb_id = int(row["tmdb_id"])
-                media_type = row.get("media_type") or "movie"
-                title = row.get("title") or ""
-                year = row.get("year")
-                imdb_id = row.get("imdb_id")
+                tmdb_id, media_type, title, year, imdb_id = decoded
                 added_at = row.get("added_at") or int(time.time())
                 self._upsert_media_meta(
                     conn, tmdb_id, media_type, title, year, imdb_id
@@ -1261,13 +1282,10 @@ class LocalMediaRepository:
         count = 0
         with conn:
             for row in rows:
-                if not row.get("tmdb_id"):
+                decoded = self._decode_row(row)
+                if decoded is None:
                     continue
-                tmdb_id = int(row["tmdb_id"])
-                media_type = row.get("media_type") or "movie"
-                title = row.get("title") or ""
-                year = row.get("year")
-                imdb_id = row.get("imdb_id")
+                tmdb_id, media_type, title, year, imdb_id = decoded
                 rating = int(row["rating"])
                 if not (1 <= rating <= 10):
                     continue
@@ -1303,7 +1321,7 @@ class LocalMediaRepository:
         updated = 0
         # Collect all unique tmdb_ids across the four user-data tables.
         tmdb_ids: set[int] = set()
-        for tbl in ("watchlist_items", "watched_items", "ratings", "collection_items"):
+        for tbl in USER_TABLES:
             for row in conn.execute(f"SELECT DISTINCT tmdb_id FROM {tbl}"):
                 tmdb_ids.add(row[0])
         if not tmdb_ids:
@@ -1452,10 +1470,7 @@ class LocalMediaRepository:
 
     SYNC_SNAPSHOT_TABLES = (
         "media_items",
-        "watched_items",
-        "watchlist_items",
-        "ratings",
-        "collection_items",
+        *USER_TABLES,
         "watched_verdicts",
         "sync_state",
         "dismissed_mappings",
