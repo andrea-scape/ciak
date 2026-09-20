@@ -703,14 +703,14 @@ class RepositoryImportTest(unittest.TestCase):
             ).fetchone()
             self.assertEqual(row[0], 1)
 
-    def test_import_ratings_halves_to_star_scale(self):
+    def test_import_ratings_stores_star_scale(self):
         with tempfile.TemporaryDirectory() as d:
             repo = self._make_repo(d)
             count = repo.import_ratings([
                 {"tmdb_id": 1, "media_type": "movie", "title": "A",
-                 "rating": 8, "rated_at": 1691971200},
+                 "rating": 4, "rated_at": 1691971200},
                 {"tmdb_id": 2, "media_type": "movie", "title": "B",
-                 "rating": 11, "rated_at": 1691971200},
+                 "rating": 6, "rated_at": 1691971200},
             ])
             self.assertEqual(count, 1)
             conn = repo._ensure_conn()
@@ -720,6 +720,23 @@ class RepositoryImportTest(unittest.TestCase):
                 "SELECT rating FROM ratings WHERE tmdb_id=1"
             ).fetchone()
             self.assertEqual(stored[0], 4)
+
+    def test_remote_rating_is_not_double_halved(self):
+        with tempfile.TemporaryDirectory() as d:
+            from src.data.sync.base import SyncCategory, SyncItem
+            from src.data.sync.converter import import_remote_items
+            repo = self._make_repo(d)
+            import_remote_items(repo, [
+                SyncItem(tmdb_id=300, media_type="movie",
+                         category=SyncCategory.RATINGS, rating=5,
+                         title="T", year=2020),
+            ])
+            conn = repo._ensure_conn()
+            row = conn.execute(
+                "SELECT rating FROM ratings WHERE tmdb_id=300"
+            ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row[0], 5)
 
     def test_import_marks_duplicates_via_existing_ids(self):
         with tempfile.TemporaryDirectory() as d:

@@ -1286,12 +1286,15 @@ class LocalMediaRepository:
                 if decoded is None:
                     continue
                 tmdb_id, media_type, title, year, imdb_id = decoded
-                rating = int(row["rating"])
-                if not (1 <= rating <= 10):
+                rating = row["rating"]
+                if rating is None:
                     continue
-                # The ratings table stores a 1-5 star scale (migration v2
-                # halved legacy 1-10 values), so halve imported values.
-                stored_rating = max(1, round(rating / 2.0))
+                rating = int(rating)
+                if not (1 <= rating <= 5):
+                    continue
+                # The ratings table stores the 1-5 star scale directly;
+                # remote sync normalized to it and CSV imports provide 1-5.
+                stored_rating = rating
                 rated_at = int(row.get("rated_at") or int(time.time()))
                 self._upsert_media_meta(
                     conn, tmdb_id, media_type, title, year, imdb_id

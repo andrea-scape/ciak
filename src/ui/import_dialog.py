@@ -457,7 +457,11 @@ class ImportPreviewDialog(Adw.Dialog):
             if target == "watchlist":
                 watchlist.append({**base, "added_at": ts})
             elif target == "ratings":
-                ratings.append({**base, "rating": item.rating, "rated_at": ts})
+                # CSV/import parsers emit ciak's legacy 1-10 scale; the
+                # ratings table stores 1-5 stars, so halve at this boundary.
+                rating = (max(1, round(item.rating / 2.0))
+                          if item.rating else None)
+                ratings.append({**base, "rating": rating, "rated_at": ts})
             elif target == "collection":
                 collection.append({**base, "collected_at": ts})
             else:
