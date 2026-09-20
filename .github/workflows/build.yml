@@ -8,7 +8,7 @@ on:
 
 jobs:
   flatpak:
-    runs-on: ubuntu-25.04
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -17,15 +17,18 @@ jobs:
       - name: Install Flatpak and test deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder xvfb \
-            python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 \
-            python3-httpx
+          sudo apt-get install -y flatpak flatpak-builder xvfb python3-pip
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.gnome.Platform//50 org.gnome.Sdk//50
+          python3 -m pip install --target=/tmp/httpx-deps httpx
 
       - name: Run unit tests
         run: |
-          xvfb-run python3 -m unittest discover -s tests
+          xvfb-run -a flatpak run --env=PYTHONPATH=/tmp/httpx-deps \
+            --filesystem=/tmp/httpx-deps --filesystem="$(pwd)" \
+            --socket=x11 --socket=wayland --session-bus --share=network \
+            --command=sh org.gnome.Sdk//50 -c \
+            'cd '"$(pwd)"' && python3 -m unittest discover -s tests'
 
       - name: Import signing key
         env:
