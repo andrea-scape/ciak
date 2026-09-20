@@ -7,16 +7,15 @@ from gi.repository import Gtk, Adw, GLib
 from ..domain.exceptions import NetworkError
 from . import watched_state
 from .genre_chips import GenreChipsRow, item_genre_names, matches_all
-from .media_card import add_watched_badge, config_grid, make_media_card, PAGE_GUTTER_PX
+from .media_card import config_grid, PAGE_GUTTER_PX
 from . import page_reveal
 from .anim import (
     CONTENT_MS,
     CONTENT_PX,
-    animations_enabled,
     fade_out_group,
     rise_fade_in,
 )
-from .shared_widgets import make_error_row
+from .shared_widgets import make_error_row, pump_media_chunks, retrofit_watched_badges
 
 
 class SearchPage(Adw.Bin):
@@ -392,7 +391,7 @@ class SearchPage(Adw.Bin):
         # Building every card in one pass spikes the main thread right in
         # the middle of the transition; spread it over idle ticks.
         queue = [("movie", m) for m in movies] + [("show", s) for s in shows]
-        self._search_build_cards = []
+        self._build_cards = []
         # Sections stay hidden while their grids fill; the finisher
         # shows exactly the non-empty ones together with their cards.
         self.movies_section[0].set_visible(False)
@@ -407,49 +406,12 @@ class SearchPage(Adw.Bin):
     def _pump_build(self, schedule=True):
         """Append one batch of pending cards; reschedules itself while
         work remains. schedule=False drains synchronously (tests)."""
-        pending = getattr(self, "_pending_chunk", None)
-        if not pending:
-            return False
-        gen, queue_iter, watched_movie_ids, fully_watched_shows = pending
-        if gen != self._render_gen:
-            self._pending_chunk = None
+        if not pump_media_chunks(
+                self, schedule,
+                is_stale=lambda gen: gen != self._render_gen):
             return False
 
-        built = []
-        for _ in range(self._CHUNK_SIZE):
-            try:
-                kind, item = next(queue_iter)
-            except StopIteration:
-                self._pending_chunk = None
-                break
-            if kind == "movie":
-                card = make_media_card(
-                    item, self.main_page,
-                    watched=item.tmdb_id in watched_movie_ids)
-                self.movies_grid.append(card)
-            else:
-                # LIVE badge set, not the populate-time snapshot.
-                live_fully = frozenset(
-                    getattr(self, "_last_fully_shows", frozenset()))
-                card = make_media_card(
-                    item, self.main_page,
-                    watched=(item.tmdb_id in fully_watched_shows
-                             or item.tmdb_id in live_fully))
-                self.shows_grid.append(card)
-            built.append(card)
-            if self._revealed and animations_enabled():
-                # Repopulate pass: hide the card BEFORE any frame can
-                # paint it — no flash.
-                card.set_opacity(0.0)
-
-        self._search_build_cards.extend(built)
-
-        if self._pending_chunk is not None:
-            if schedule:
-                GLib.idle_add(self._pump_build, True)
-            return False
-
-        cards = self._search_build_cards
+        cards = self._build_cards
         # Show exactly the sections that have content — titles never
         # precede their first cards.
         sections = []
@@ -489,17 +451,8 @@ class SearchPage(Adw.Bin):
         """Retrofit watched badges onto rendered show cards."""
         prev = frozenset(getattr(self, "_last_fully_shows", frozenset()))
         self._last_fully_shows = prev | frozenset(fully_ids)
-        for grid in (self.movies_grid, self.shows_grid):
-            child = grid.get_first_child()
-            while child:
-                nxt = child.get_next_sibling()
-                button = getattr(child, "get_child", lambda: None)()
-                item = getattr(button, "_media_item", None) if button else None
-                if (item is not None
-                        and getattr(item, "media_type", "") == "show"
-                        and item.tmdb_id in fully_ids):
-                    add_watched_badge(button)
-                child = nxt
+        retrofit_watched_badges(
+            (self.movies_grid, self.shows_grid), fully_ids)
         return False
 
     def _on_genres_changed(self):

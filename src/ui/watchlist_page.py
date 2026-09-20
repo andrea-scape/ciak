@@ -17,7 +17,6 @@ from .genre_chips import GenreChipsRow, item_genre_names, matches_all
 from .media_card import (
     POSTER_H,
     POSTER_W,
-    add_watched_badge,
     config_grid,
     make_media_card,
     PAGE_GUTTER_PX,
@@ -30,12 +29,11 @@ from .anim import (
     CONTENT_MS,
     CONTENT_PX,
     ENTRANCE_MS,
-    animations_enabled,
     fade_in,
     fade_out_group,
     rise_fade_in,
 )
-from .shared_widgets import make_error_row
+from .shared_widgets import make_error_row, pump_media_chunks, retrofit_watched_badges
 
 
 class WatchlistPage(Gtk.Box):
@@ -608,17 +606,8 @@ class WatchlistPage(Gtk.Box):
         self._last_fully_shows = (
             frozenset(getattr(self, "_last_fully_shows", frozenset())) | frozenset(fully_ids)
         )
-        for grid in (self.movies_grid, self.shows_grid):
-            child = grid.get_first_child()
-            while child:
-                nxt = child.get_next_sibling()
-                button = getattr(child, "get_child", lambda: None)()
-                item = getattr(button, "_media_item", None) if button else None
-                if (item is not None
-                        and getattr(item, "media_type", "") == "show"
-                        and item.tmdb_id in fully_ids):
-                    add_watched_badge(button)
-                child = nxt
+        retrofit_watched_badges(
+            (self.movies_grid, self.shows_grid), fully_ids)
         return False
 
     def _fetch(self, token, mode):
@@ -789,68 +778,19 @@ class WatchlistPage(Gtk.Box):
     def _pump_build(self, schedule=True):
         """Append one batch of pending cards; reschedules itself while
         work remains. schedule=False drains synchronously (tests)."""
-        pending = getattr(self, "_pending_chunk", None)
-        if not pending:
-            return False
-        token, queue_iter, watched_movie_ids, fully_watched_shows = pending
-        if token != self._reload_token:
-            self._pending_chunk = None
-            return False
-
-        cards = getattr(self, "_build_cards", None)
-        if cards is None:
-            cards = self._build_cards = []
-
-        movie_ready = partial(self._show_section_header, self.movies_section)
-        show_ready = partial(self._show_section_header, self.shows_section)
-
-        built = []
-        for _ in range(self._CHUNK_SIZE):
-            try:
-                kind, item = next(queue_iter)
-            except StopIteration:
-                self._pending_chunk = None
-                break
-            if kind == "movie":
-                card = make_media_card(
-                    item, self.main_page,
-                    watched=item.tmdb_id in watched_movie_ids,
-                    on_poster_ready=movie_ready)
-                self.movies_grid.append(card)
-            else:
-                # Read the LIVE badge set, not the snapshot captured at
-                # populate time: checks that resolved while earlier chunks
-                # were building must badge later-built cards too.
-                live_fully = frozenset(
-                    getattr(self, "_last_fully_shows", frozenset()))
-                card = make_media_card(
-                    item, self.main_page,
-                    watched=(item.tmdb_id in fully_watched_shows
-                             or item.tmdb_id in live_fully),
-                    on_poster_ready=show_ready)
-                self.shows_grid.append(card)
-            built.append(card)
-            card._pre_reveal = not self._revealed
-            if self._revealed and animations_enabled():
-                # Repopulate pass: hide the card BEFORE any frame can
-                # paint it, so the delayed rise-fade never flashes.
-                card.set_opacity(0.0)
-
-        cards.extend(built)
-
-        if not self._revealed and built:
-            # First load: reveal right after the first batch renders so the
-            # dashboard is visible immediately; the rest of the grid fills
-            # in as chunks pump, without waiting for posters to settle.
-            self._revealed_early = True
-            self._reveal_page()
-
-        if self._pending_chunk is not None:
-            if schedule:
-                GLib.idle_add(self._pump_build, True)
+        if not pump_media_chunks(
+                self, schedule,
+                is_stale=lambda tok: tok != self._reload_token,
+                movie_kw={"on_poster_ready": partial(
+                    self._show_section_header, self.movies_section)},
+                show_kw={"on_poster_ready": partial(
+                    self._show_section_header, self.shows_section)},
+                set_pre_reveal=True,
+                on_first_batch=self._reveal_after_first):
             return False
 
         # Queue drained: chips, sections, optional rise-fade, reveal.
+        cards = self._build_cards
         self._build_cards = None
         self.genre_chips.set_genres(
             g for it in self._items for g in item_genre_names(it)
@@ -910,6 +850,13 @@ class WatchlistPage(Gtk.Box):
         self.movies_grid.queue_resize()
         self.shows_grid.queue_resize()
         return False
+
+    def _reveal_after_first(self):
+        """First load: reveal right after the first batch renders so the
+        dashboard is visible immediately; the rest of the grid fills in as
+        chunks pump, without waiting for posters to settle."""
+        self._revealed_early = True
+        self._reveal_page()
 
     def _show_section_header(self, section):
         """Reveal a section header the first time one of its cards paints

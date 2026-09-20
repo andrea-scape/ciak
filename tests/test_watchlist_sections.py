@@ -133,7 +133,7 @@ class WatchlistSectionRevealTest(unittest.TestCase):
         page._pending_chunk = (page._reload_token, queue, frozenset(),
                                frozenset())
         with mock.patch(
-                "src.ui.watchlist_page.make_media_card",
+                "src.ui.shared_widgets.make_media_card",
                 return_value=Gtk.Box()) as mk:
             page._pump_build(schedule=False)
 

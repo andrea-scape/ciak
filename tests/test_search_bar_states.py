@@ -20,6 +20,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 import src.ui.search_page as search_page_module
+import src.ui.shared_widgets as shared_widgets
 from src.ui.history_page import HistoryPage
 from src.ui.search_page import SearchPage
 from src.ui.watchlist_page import WatchlistPage
@@ -78,8 +79,8 @@ class PlaceholderTest(SearchBarTestBase):
 class TrendingPillsTest(SearchBarTestBase):
     def test_trending_movies_carry_watched_flag(self):
         page = _make(SearchPage, _Repo(), object(), None)
-        mk = mock.patch.object(search_page_module, "make_media_card",
-                               wraps=search_page_module.make_media_card)
+        mk = mock.patch.object(shared_widgets, "make_media_card",
+                               wraps=shared_widgets.make_media_card)
         with mk as m:
             page._populate_trending(
                 page._render_gen,
