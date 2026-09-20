@@ -429,52 +429,45 @@ class TmdbMetadataService:
     # Raw → Model converters
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _year(date_str: str | None) -> int | None:
+        return int(date_str[:4]) if date_str else None
+
+    def _raw_media_common(self, raw: dict, title: str) -> dict:
+        return {
+            "tmdb_id": raw["id"],
+            "title": title,
+            "overview": raw.get("overview"),
+            "rating": raw.get("vote_average"),
+            "votes": raw.get("vote_count"),
+            "poster_url": self._client._image_url(raw.get("poster_path")),
+            "backdrop_url": self._client._image_url(raw.get("backdrop_path"), "w780"),
+            "genres": [g["name"] for g in raw.get("genres", [])],
+            "genre_ids": self._extract_genre_ids(raw),
+            "tagline": raw.get("tagline"),
+        }
+
     def _raw_to_movie(self, raw: dict) -> Movie:
-        year = None
-        if raw.get("release_date"):
-            year = int(raw["release_date"][:4])
         return Movie(
-            tmdb_id=raw["id"],
-            title=raw.get("title", "Unknown"),
-            year=year,
+            year=self._year(raw.get("release_date")),
             release_date=raw.get("release_date"),
-            overview=raw.get("overview"),
             runtime=raw.get("runtime"),
-            rating=raw.get("vote_average"),
-            votes=raw.get("vote_count"),
-            poster_url=self._client._image_url(raw.get("poster_path")),
-            backdrop_url=self._client._image_url(raw.get("backdrop_path"), "w780"),
             imdb_id=raw.get("imdb_id"),
-            genres=[g["name"] for g in raw.get("genres", [])],
-            genre_ids=self._extract_genre_ids(raw),
             collection_id=(raw.get("belongs_to_collection") or {}).get("id"),
             collection_name=(raw.get("belongs_to_collection") or {}).get("name"),
-            tagline=raw.get("tagline"),
             budget=raw.get("budget"),
             revenue=raw.get("revenue"),
+            **self._raw_media_common(raw, raw.get("title", "Unknown")),
         )
 
     def _raw_to_show(self, raw: dict) -> Show:
-        year = None
-        if raw.get("first_air_date"):
-            year = int(raw["first_air_date"][:4])
         episode_runtimes = raw.get("episode_run_time") or [0]
         next_ep = raw.get("next_episode_to_air") or {}
         return Show(
-            tmdb_id=raw["id"],
-            title=raw.get("name", "Unknown"),
-            year=year,
+            year=self._year(raw.get("first_air_date")),
             first_air_date=raw.get("first_air_date"),
-            overview=raw.get("overview"),
             status=raw.get("status"),
             runtime=episode_runtimes[0] if episode_runtimes else None,
-            rating=raw.get("vote_average"),
-            votes=raw.get("vote_count"),
-            poster_url=self._client._image_url(raw.get("poster_path")),
-            backdrop_url=self._client._image_url(raw.get("backdrop_path"), "w780"),
-            genres=[g["name"] for g in raw.get("genres", [])],
-            genre_ids=self._extract_genre_ids(raw),
-            tagline=raw.get("tagline"),
             **(
                 {
                     "next_episode_air_date": next_ep.get("air_date"),
@@ -502,6 +495,7 @@ class TmdbMetadataService:
                 }
                 for c in raw.get("created_by", [])
             ],
+            **self._raw_media_common(raw, raw.get("name", "Unknown")),
         )
 
     @staticmethod

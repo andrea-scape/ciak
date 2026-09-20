@@ -9,7 +9,14 @@ import time
 
 import httpx
 
-from .base import SyncBackend, SyncCapabilities, SyncCategory, SyncItem, SyncResult
+from .base import (
+    SyncBackend,
+    SyncCapabilities,
+    SyncCategory,
+    SyncItem,
+    SyncResult,
+    denormalize_star_rating,
+)
 from .credentials import (
     delete_service,
     load_credential,
@@ -21,10 +28,11 @@ _log = logging.getLogger(__name__)
 SIMKL_BASE = "https://api.simkl.com"
 _TIMEOUT = 20.0
 
-# Simkl rating scale: 1-10 integer.  Ciak uses 1-5.
-
+# Simkl rates on an integer 1-10 scale and Ciak on 1-5, so a Simkl rating
+# collapses to a star by pairing: 1-2 -> 1, 3-4 -> 2 and so on.  This stays
+# here instead of sharing a generic bucket step because TMDB bins fractional
+# ratings around the same midpoints, and the two sources round differently.
 SIMKL_TO_CIAK = {1: 1, 2: 1, 3: 2, 4: 2, 5: 3, 6: 3, 7: 4, 8: 4, 9: 5, 10: 5}
-CIAK_TO_SIMKL = {1: 1, 2: 3, 3: 5, 4: 7, 5: 9}
 
 
 def _normalize_rating(simkl_rating: int) -> int:
@@ -32,7 +40,7 @@ def _normalize_rating(simkl_rating: int) -> int:
 
 
 def _denormalize_rating(ciak_rating: int) -> int:
-    return CIAK_TO_SIMKL.get(ciak_rating, 5)
+    return denormalize_star_rating(ciak_rating)
 
 
 class SimklSyncBackend(SyncBackend):

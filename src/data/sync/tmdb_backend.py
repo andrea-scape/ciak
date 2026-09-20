@@ -9,7 +9,14 @@ import time
 
 import httpx
 
-from .base import SyncBackend, SyncCapabilities, SyncCategory, SyncItem, SyncResult
+from .base import (
+    CIAK_TO_SOURCE,
+    SyncBackend,
+    SyncCapabilities,
+    SyncCategory,
+    SyncItem,
+    SyncResult,
+)
 from .credentials import (
     delete_service,
     load_credential,
@@ -22,7 +29,10 @@ TMDB_BASE = "https://api.themoviedb.org/3"
 _TIMEOUT = 20.0
 
 # TMDB rating scale is 0.5-10.0 in 0.5 increments.
-# We normalize to Ciak's 1-5 integer scale.
+# TMDB rates on a 0-10 float scale.  Ciak uses 1-5, and the buckets below
+# narrow each float around the shared star midpoints in base.py.  The bounds
+# are intentionally asymmetric because TMDB reports in fractions, unlike
+# Simkl's integer stars; the two sources cannot share a single bucket step.
 
 TMDB_TO_CIAK = {
     (0.0, 1.0): 1,
@@ -32,7 +42,7 @@ TMDB_TO_CIAK = {
     (5.5, 10.1): 5,
 }
 
-CIAK_TO_TMDB = {1: 1.0, 2: 3.0, 3: 5.0, 4: 7.0, 5: 9.0}
+CIAK_TO_TMDB = {ciak: float(source) for ciak, source in CIAK_TO_SOURCE.items()}
 
 
 def _normalize_rating(tmdb_rating: float) -> int:

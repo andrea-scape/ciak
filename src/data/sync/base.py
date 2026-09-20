@@ -4,6 +4,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 
+# Midpoints of Ciak's 1-5 star scale, used to denormalize a rating back to a
+# source's wider range.  Both TMDB and Simkl push a star from this same
+# center: a rating of N stars is the middle of a two-point band.
+CIAK_TO_SOURCE = {1: 1, 2: 3, 3: 5, 4: 7, 5: 9}
+
+
+def denormalize_star_rating(ciak_rating: int) -> int:
+    return CIAK_TO_SOURCE.get(ciak_rating, 5)
+
 
 class SyncCategory(Enum):
     WATCHLIST = "watchlist"
