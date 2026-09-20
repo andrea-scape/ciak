@@ -7,6 +7,8 @@ _build/
 *.builddir
 .flatpak-builder/
 build-aux/flatpak/build/
+build-dir-*/
+.superpowers/
 cache/
 settings
 data/icons/Adwaita/
@@ -15,4 +17,3 @@ data/gschemas.compiled
 .vscode/
 .idea/
 venv/
-docs/

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.8 - 2026-09-19
+
+- The calendar "Upcoming" popover opens reliably: it lists only the releases airing from today onward in the shown month, scrolls when long, adjusts to the window, and its count always matches the releases listed
+- Diary history can be filtered by genre chips drawn from your watched titles
+- Diary month dividers render fully with a floating "month in view" chip, and scrolling no longer re-lays out the page
+- Poster reveal animation animates opacity only, removing the per-frame layout that stuttered dense grids
+- Watchlist, search and collection cards are pinned to their poster width, keeping every grid column even
+- A "Send Test Notification" button and BETA badge appear in the airing-notification preferences; enabling airing notifications checks for due episodes right away
+
+## 0.1.7 - 2026-09-11
+
+- Watchlist grid appears instantly; hiding of caught-up and unreleased titles now happens after the first paint
+- Detail pages show the title, year, and plot right away from local data
+- Search reveals its first results without waiting for posters
+- Unreleased-title checks run in parallel, and network requests fail faster
+- Posters reveal with their info captions once painted, and missing posters are prefetched
+- BETA indicator on development builds
+
 ## 0.1.5 - 2026-08-16
 
 - Marking a title as watched opens the rating dialog right away (skipped when already rated)
