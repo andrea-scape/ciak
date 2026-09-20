@@ -1,6 +1,7 @@
 """Content filter (ALL/Movies/Shows): global sync + persistence."""
-
 import sys
+_cfg = sys.modules["src.config"]
+
 import types
 import unittest
 
@@ -13,14 +14,6 @@ gi.require_version("Gdk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gtk, Adw, Gio
 
-if "src.config" not in sys.modules:
-    _cfg = types.ModuleType("src.config")
-    _cfg.APP_ID = "io.github.andrea_scape.ciak.Devel"
-    _cfg.APP_VERSION = "0.0.0-test"
-    _cfg.APP_NAME = "Ciak"
-    sys.modules["src.config"] = _cfg
-else:
-    _cfg = sys.modules["src.config"]
 
 from src.domain.models import Movie
 from src.window import MainWindow

@@ -2,19 +2,12 @@
 header appears only when its first poster is actually painted (or the
 poster-ready safety fires); repopulates keep showing non-empty
 sections at drain as before."""
+import tests.testsupport  # noqa: F401 (injects the src.config stub)
 
-import sys
-import types
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-if "src.config" not in sys.modules:
-    _cfg = types.ModuleType("src.config")
-    _cfg.APP_ID = "io.github.andrea_scape.ciak.Devel"
-    _cfg.APP_VERSION = "0.0.0-test"
-    _cfg.APP_NAME = "Ciak"
-    sys.modules["src.config"] = _cfg
 
 import gi
 gi.require_version("Gtk", "4.0")

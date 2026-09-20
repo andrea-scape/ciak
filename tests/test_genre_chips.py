@@ -1,10 +1,9 @@
 """Genre chips: shared row widget, page integration, repo plumbing."""
+import tests.testsupport  # noqa: F401 (injects the src.config stub)
 
 import json
 import os
-import sys
 import tempfile
-import types
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -15,14 +14,6 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, Gio
 
-if "src.config" not in sys.modules:
-    _cfg = types.ModuleType("src.config")
-    _cfg.APP_ID = "io.github.andrea_scape.ciak.Devel"
-    _cfg.APP_VERSION = "0.0.0-test"
-    _cfg.APP_NAME = "Ciak"
-    sys.modules["src.config"] = _cfg
-else:
-    _cfg = sys.modules["src.config"]
 
 from src.ui.genre_chips import (
     GenreChipsRow,

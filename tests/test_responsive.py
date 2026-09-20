@@ -1,5 +1,4 @@
-import sys
-import types
+import tests.testsupport  # noqa: F401 (injects the src.config stub)
 import unittest
 
 import gi
@@ -9,11 +8,6 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gtk, Adw, Gio, Gdk, GdkPixbuf, GLib
-
-# config.py is generated at build time; provide the bits used at import time.
-_cfg = types.ModuleType("src.config")
-_cfg.APP_ID = "io.github.andrea_scape.ciak.Devel"
-sys.modules["src.config"] = _cfg
 
 from src.domain.models import Movie
 from src.window import MainWindow

@@ -1,14 +1,8 @@
+import tests.testsupport  # noqa: F401 (injects the src.config stub)
 import os
-import sys
 import types
 import unittest
 
-if "src.config" not in sys.modules:
-    _cfg = types.ModuleType("src.config")
-    _cfg.APP_ID = "io.github.andrea_scape.ciak.Devel"
-    _cfg.APP_VERSION = "0.0.0-test"
-    _cfg.APP_NAME = "Ciak"
-    sys.modules["src.config"] = _cfg
 
 import gi
 

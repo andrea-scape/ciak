@@ -1,5 +1,4 @@
 import sys
-import types
 import unittest
 from unittest import mock
 
@@ -9,10 +8,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw
 
-# config.py is generated at build time; provide the bits used at import time.
-_cfg = types.ModuleType("src.config")
-_cfg.APP_ID = "io.github.andrea_scape.ciak.Devel"
-sys.modules.setdefault("src.config", _cfg)
+import tests.testsupport  # noqa: F401 (injects the src.config stub)
+_cfg = sys.modules["src.config"]
 
 from src.data.importers import ImportItem, MatchResult
 from src.ui.import_dialog import ImportPreviewDialog
