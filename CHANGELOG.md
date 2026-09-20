@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.9 - 2026-09-20
+
+- Detail-page backdrops reuse the shared poster pipeline, so opening a title draws on artwork the app already fetched instead of requesting a second copy
+- The app no longer forces the GL renderer and lets the system default handle drawing, fixing startup failure on systems without hardware-accelerated GL
+
 ## 0.1.8 - 2026-09-19
 
 - The calendar "Upcoming" popover opens reliably: it lists only the releases airing from today onward in the shown month, scrolls when long, adjusts to the window, and its count always matches the releases listed
