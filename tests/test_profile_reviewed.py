@@ -10,10 +10,39 @@ from gi.repository import Gtk, Adw
 
 from src.ui.profile_page import ProfileGallery
 
+_STATS = SimpleNamespace(movies_watched=0, shows_watched=0, episodes_watched=0)
+_WL_STATS = {
+    "movie_count": 0,
+    "show_count": 0,
+    "episodes_to_watch": 0,
+    "total_runtime": 0,
+}
+
+
+class _StubRepo:
+    """Controls the real values ProfileBase._fetch consumes, so a deferred
+    _load that escapes into a GLib thread outside any Thread.new patch
+    completes instead of slicing a Mock and printing thread noise."""
+
+    def get_stats(self):
+        return _STATS
+
+    def get_watchlist_stats(self):
+        return _WL_STATS
+
+    def get_watched_runtime(self):
+        return 0
+
+    def get_ratings(self):
+        return []
+
+    def get_watched_list(self, media_type):
+        return []
+
 
 def make_profile():
     with mock.patch("gi.repository.GLib.Thread.new"):
-        page = ProfileGallery(object(), mock.Mock(), object(), object())
+        page = ProfileGallery(object(), _StubRepo(), object(), object())
     return page
 
 
@@ -99,7 +128,7 @@ class ProfileSagasTest(unittest.TestCase):
                 recorded.append((cid, name))
 
         with mock.patch("gi.repository.GLib.Thread.new"):
-            page = ProfileGallery(object(), mock.Mock(), object(), FakeMainPage())
+            page = ProfileGallery(object(), _StubRepo(), object(), FakeMainPage())
         watched = [
             {"tmdb_id": 1, "collection_id": 1241, "collection_name": "HP", "poster_url": None},
         ]
@@ -248,7 +277,7 @@ class ProfileAvatarTest(unittest.TestCase):
     def test_avatar_shows_first_letter_of_username(self):
         with mock.patch("getpass.getuser", return_value="ascape"), \
                 mock.patch("gi.repository.GLib.Thread.new"):
-            page = ProfileGallery(object(), mock.Mock(), object(), object())
+            page = ProfileGallery(object(), _StubRepo(), object(), object())
         self.assertIsInstance(page.profile_avatar, Gtk.DrawingArea)
         self.assertEqual(page.profile_avatar._initial_char, "A")
         self.assertTrue(page.profile_avatar.has_css_class("profile-initial"))

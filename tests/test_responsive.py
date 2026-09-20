@@ -21,6 +21,9 @@ class _Settings:
     def get_int(self, key):
         return {"window-width": 1200, "window-height": 800}.get(key, 0)
 
+    def get_int64(self, key):
+        return 0
+
     def get_boolean(self, key):
         return {
             "window-maximized": False,

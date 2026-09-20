@@ -1,5 +1,6 @@
 """Content filter (ALL/Movies/Shows): global sync + persistence."""
 import sys
+import tests.testsupport  # noqa: F401 (injects the src.config stub)
 _cfg = sys.modules["src.config"]
 
 import types

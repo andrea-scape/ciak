@@ -408,8 +408,9 @@ class PendingLoadsTest(unittest.TestCase):
         self.assertEqual(self.poster.pending_loads(), 0)
 
     def test_memory_hit_never_counts(self):
-        self.poster._MEM_PIXBUF[self.poster._mem_key(URL, 160, 240)] = object()
-        with mock.patch.object(self.poster.poster_cache, "get") as cg:
+        self.poster._MEM_PIXBUF[self.poster._mem_key(URL, 160, 240)] = _fake_pixbuf()
+        with mock.patch.object(self.poster.poster_cache, "get") as cg, \
+                mock.patch.object(GLib, "idle_add"):
             self.poster.load_poster(URL, _picture())
         cg.assert_not_called()
         self.assertEqual(self.poster.pending_loads(), 0)

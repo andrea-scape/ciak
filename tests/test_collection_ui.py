@@ -1,5 +1,6 @@
 """Collections UI: detail chip, watched badge, collection page, navigation."""
 import sys
+import tests.testsupport  # noqa: F401 (injects the src.config stub)
 _cfg = sys.modules["src.config"]
 
 import unittest
@@ -46,6 +47,9 @@ class _Settings:
 
     def get_int(self, key):
         return self._ints.get(key, 0)
+
+    def get_int64(self, key):
+        return 0
 
     def set_boolean(self, key, value):
         self._bools[key] = value
