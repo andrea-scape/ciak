@@ -80,7 +80,8 @@ class CalendarUpcomingTest(unittest.TestCase):
         self.assertEqual(scroller.get_max_content_height(), 320)
         box = _popover_box(pop)
         self.assertIsInstance(box, Gtk.Box)
-        self.assertEqual(len(_kids(box)), 2)  # header + one card
+        self.assertEqual(
+            len([k for k in _kids(box) if isinstance(k, Gtk.Button)]), 1)
 
     def test_popover_shows_only_future_releases(self):
         page = _new_page()

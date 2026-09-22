@@ -2261,7 +2261,7 @@ class TestV9Migration(unittest.TestCase):
             self.assertNotIn("deletion_suppressions", tables)
             self.assertIn("dismissed_mappings", tables)
             ver = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-            self.assertEqual(ver, 13)
+            self.assertEqual(ver, schema.SCHEMA_VERSION)
             conn.close()
 
     def test_v12_database_drops_deletion_suppressions(self):
@@ -2295,7 +2295,7 @@ class TestV9Migration(unittest.TestCase):
             self.assertNotIn("deletion_suppressions", tables)
             ver = conn.execute(
                 "SELECT MAX(version) FROM schema_version").fetchone()[0]
-            self.assertEqual(ver, 13)
+            self.assertEqual(ver, schema.SCHEMA_VERSION)
             conn.close()
 
 

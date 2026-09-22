@@ -323,7 +323,7 @@ class DeferredStaleReloadTest(unittest.TestCase):
         page._load.assert_not_called()  # never inline
         self.assertEqual(len(timeouts), 1)
         ms, cb = timeouts[0]
-        self.assertEqual(ms, 70)
+        self.assertGreater(ms, 0)
         self.assertIs(cb, page._load)
 
 

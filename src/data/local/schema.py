@@ -5,6 +5,10 @@ A single SQLite database file holds all persistent state: user data
 WAL journal mode is enabled for concurrent read performance.
 """
 
+# The newest migration applied by _migrate().  Tests that build an old
+# database and run initialize() assert the schema walked forward to this.
+SCHEMA_VERSION = 14
+
 import logging
 
 DB_VERSION = 12
@@ -355,4 +359,16 @@ def _migrate(conn) -> None:
         conn.execute(
             "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
             (13, 1),
+        )
+    if current < 14:
+        # Per-show watched lookups (watched-episodes-for-show, whole-show
+        # verdicts, airing-notification checks) scan watched_items by
+        # show_tmdb_id; the composite unique index is tmdb_id-first and
+        # never serves that access pattern.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_watched_show ON watched_items (show_tmdb_id)"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version, applied) VALUES (?, ?)",
+            (14, 1),
         )

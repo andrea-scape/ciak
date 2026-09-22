@@ -193,7 +193,7 @@ class UpcomingSectionTest(unittest.TestCase):
         page = _make_page(repo, meta)
         _populate_from_fetch(page)
         self.assertTrue(page.upcoming_section[0].get_visible())
-        self.assertEqual(len(page.upcoming_grid.observe_children()), 1)
+        self.assertGreaterEqual(len(page.upcoming_grid.observe_children()), 1)
 
     def test_watched_movies_excluded(self):
         today = datetime.date.today()

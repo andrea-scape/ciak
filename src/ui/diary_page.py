@@ -575,6 +575,7 @@ class DiaryPage(Adw.Bin):
         self._anchor_day = None      # day to re-anchor after a rebuild
         self._restore_y = 0.0
         self._user_nav = False       # filter/mode/search change: start at top
+        self._filter_ready_id = None  # pending debounced filter reload
         self._active_month = None
         self._scroll_anim = 0
         self._tail_row = None
@@ -730,11 +731,23 @@ class DiaryPage(Adw.Bin):
     def _on_search_changed(self, entry):
         self._query = entry.get_text().strip().casefold()
         self._user_nav = True
-        self._load()
+        self._schedule_filter_load()
 
     def _on_genres_changed(self, _chips):
         self._user_nav = True
+        self._schedule_filter_load()
+
+    def _schedule_filter_load(self):
+        """Debounce filter/search reloads: a full diary rebuild runs ~90+
+        sqlite queries, and search-changed fires once per keystroke."""
+        if self._filter_ready_id is not None:
+            GLib.source_remove(self._filter_ready_id)
+        self._filter_ready_id = GLib.timeout_add(250, self._run_filter_load)
+
+    def _run_filter_load(self):
+        self._filter_ready_id = None
         self._load()
+        return GLib.SOURCE_REMOVE
 
     # -- loading ---------------------------------------------------------
 

@@ -1,6 +1,9 @@
 import tests.testsupport  # noqa: F401 (injects the src.config stub)
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
+from gi.repository import GLib
 
 from src.ui.scroll_restore import clamp_value
 from src.ui.diary_page import _month_label
@@ -41,6 +44,66 @@ class MonthLabelTest(unittest.TestCase):
 
     def test_none_is_empty(self):
         self.assertEqual(_month_label(None), "")
+
+
+class _SearchEntry:
+    def __init__(self, text):
+        self._text = text
+
+    def get_text(self):
+        return self._text
+
+
+class DiaryFilterDebounceTest(unittest.TestCase):
+    """search-changed fires per keystroke; the full diary rebuild must be
+    deferred and re-armed so a burst of keys schedules one reload."""
+
+    @staticmethod
+    def _page():
+        from src.ui.diary_page import DiaryPage
+
+        p = SimpleNamespace(
+            _query="", _user_nav=False, _filter_ready_id=None,
+            _load=mock.Mock(),
+        )
+        p._schedule_filter_load = DiaryPage._schedule_filter_load.__get__(p)
+        p._run_filter_load = DiaryPage._run_filter_load.__get__(p)
+        return p
+
+    def test_keystrokes_arm_one_debounced_reload(self):
+        from src.ui.diary_page import DiaryPage
+
+        page = self._page()
+        with mock.patch.object(GLib, "timeout_add", return_value=99) as ta, \
+                mock.patch.object(GLib, "source_remove") as sr:
+            DiaryPage._on_search_changed(page, _SearchEntry("o"))
+            DiaryPage._on_search_changed(page, _SearchEntry("op"))
+            DiaryPage._on_search_changed(page, _SearchEntry("opp"))
+        self.assertEqual(sr.call_count, 2)  # keys 2 and 3 cancel the prior arm
+        sr.assert_called_with(99)
+        self.assertEqual(ta.call_count, 3)  # every key re-arms; one survives
+        self.assertEqual(ta.call_args.args[0], 250)
+        page._load.assert_not_called()  # deferred, not inline
+
+    def test_chip_toggle_shares_the_debounce(self):
+        from src.ui.diary_page import DiaryPage
+
+        page = self._page()
+        with mock.patch.object(GLib, "timeout_add", return_value=99) as ta:
+            DiaryPage._on_genres_changed(page, None)
+        ta.assert_called_once()
+        self.assertEqual(ta.call_args.args[0], 250)
+        page._load.assert_not_called()
+
+    def test_fired_timer_runs_the_reload(self):
+        from src.ui.diary_page import DiaryPage
+
+        page = self._page()
+        page._filter_ready_id = 99
+        ret = DiaryPage._run_filter_load(page)
+        page._load.assert_called_once()
+        self.assertEqual(page._filter_ready_id, None)
+        self.assertEqual(ret, GLib.SOURCE_REMOVE)
 
 
 if __name__ == "__main__":

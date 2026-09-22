@@ -10,6 +10,7 @@ from .profile_base import ProfileBase
 from .media_card import config_grid, make_media_card
 from .poster import create_poster, load_poster
 from .anim import CONTENT_MS, CONTENT_PX, rise_fade_in
+from ..threads import submit
 
 
 def _make_stars(rating):
@@ -172,11 +173,16 @@ class ProfileGallery(ProfileBase):
     def _fetch_saga_totals(self, gen, cids):
         totals = {}
         posters = {}
-        for cid in cids:
+
+        def _coll(cid):
             try:
-                col = self.metadata_service.get_collection(cid)
+                return cid, self.metadata_service.get_collection(cid)
             except Exception:
-                continue
+                return cid, None
+
+        futures = {cid: submit(_coll, cid) for cid in cids}
+        for cid, fut in futures.items():
+            _, col = fut.result()
             if col is not None and getattr(col, "parts", None):
                 totals[cid] = len(col.parts)
                 url = getattr(col.parts[0], "poster_url", None)
