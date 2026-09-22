@@ -1078,9 +1078,11 @@ class MainPage(Adw.Bin):
             self._selecting_sidebar = False
 
         self._cancel_headerbar_sync()
-        duration = self.content_stack.get_transition_duration()
+        # Header swaps at the same moment the page starts moving, not after
+        # the transition ends, so the title leads the content instead of
+        # trailing it by a full slide.
         self._pending_headerbar_sync_id = GLib.timeout_add(
-            duration, self._sync_headerbar, page_id
+            0, self._sync_headerbar, page_id
         )
 
     def _select_page(self, page_id):
@@ -1128,14 +1130,14 @@ class MainPage(Adw.Bin):
 
         self._cancel_headerbar_sync()
         self._pending_headerbar_sync_id = GLib.timeout_add(
-            400, self._sync_headerbar_detail, item.title
+            0, self._sync_headerbar_detail, item.title
         )
 
         # Fetch the hero metadata immediately so the title/buttons appear as
         # soon as possible; defer the heavy work (poster decode + related/cast)
         # until after the slide so it never stutters the animation.
         GLib.Thread.new("detail-hero", self._prefetch_hero, media_type, item, detail)
-        GLib.timeout_add(400, self._start_detail_rest, media_type, item, detail)
+        GLib.timeout_add(NAV_SLIDE_MS + 80, self._start_detail_rest, media_type, item, detail)
         return detail, target
 
     def _reveal_detail(self, child, slot, title):
@@ -1154,7 +1156,7 @@ class MainPage(Adw.Bin):
 
         self._cancel_headerbar_sync()
         self._pending_headerbar_sync_id = GLib.timeout_add(
-            400, self._sync_headerbar_detail, title
+            0, self._sync_headerbar_detail, title
         )
 
     def _on_open_detail_activated(self, _action, param):
@@ -1345,7 +1347,7 @@ class MainPage(Adw.Bin):
 
             if getattr(detail_page, "_cancelled", False):
                 return
-            GLib.idle_add(detail_page.populate_hero, hero, None)
+            GLib.timeout_add(NAV_SLIDE_MS, detail_page.populate_hero, hero, None)
         except NetworkError as e:
             def _hero_retry():
                 GLib.Thread.new("detail-hero-retry", self._prefetch_hero, media_type, item, detail_page)
