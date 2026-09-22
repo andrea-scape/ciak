@@ -971,7 +971,7 @@ class DiaryPage(Adw.Bin):
     def _animate_scroll_to(self, target):
         """Short ease-out scroll so jumps feel physical, not teleporty."""
         if self._scroll_anim:
-            GLib.source_remove(self._scroll_anim)
+            self._scroll.remove_tick_callback(self._scroll_anim)
             self._scroll_anim = 0
         adj = self._scroll.get_vadjustment()
         start = adj.get_value()
@@ -979,10 +979,13 @@ class DiaryPage(Adw.Bin):
         if abs(distance) < 2.0:
             adj.set_value(target)
             return
+        if self._scroll.get_frame_clock() is None:
+            adj.set_value(target)
+            return
         duration_ms = 280.0
         deadline = GLib.get_monotonic_time() / 1000.0 + duration_ms
 
-        def _step():
+        def _step(*_args):
             now = GLib.get_monotonic_time() / 1000.0
             # Elapsed fraction: 0 at the first tick, 1 at the deadline.
             # (deadline - now) alone would count DOWN and run the tween
@@ -995,7 +998,7 @@ class DiaryPage(Adw.Bin):
                 return False
             return True
 
-        self._scroll_anim = GLib.timeout_add(16, _step)
+        self._scroll_anim = self._scroll.add_tick_callback(_step)
 
     def _active_month_for_value(self, value):
         """Month whose divider sits at/above the viewport top, or None."""

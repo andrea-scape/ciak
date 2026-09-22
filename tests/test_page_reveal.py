@@ -43,26 +43,34 @@ class SettleRevealTest(unittest.TestCase):
             side_effect=lambda ms, cb, *a:
             self.timeouts.append((ms, cb)) or len(self.timeouts))
 
-    def _poll_cbs(self):
-        return [cb for ms, cb in self.timeouts if ms == 100]
+    def _capture_ticks(self, ticks):
+        def _capture(*args):
+            # Called unbound through the class patch: either
+            # (widget, cb, data) or (cb,) depending on binding.
+            cb = args[1] if len(args) >= 2 else args[0]
+            ticks.append(cb)
+            return 0  # source id placeholder
+
+        return mock.patch.object(Gtk.Box, "add_tick_callback",
+                                 side_effect=_capture)
 
     def test_prehides_and_polls_until_settled(self):
         settle = {"v": 1}
-        with self._capturing():
+        ticks = []
+        with self._capturing(), self._capture_ticks(ticks):
             reveal = self._arm(settle)
             self.assertEqual(self.box.get_opacity(), 0.0)
 
             reveal()
             self.assertEqual(self.box.get_opacity(), 0.0)  # still waiting
-            polls = self._poll_cbs()
-            self.assertEqual(len(polls), 1)
+            self.assertTrue(ticks, "settle poll registers a frame tick")
 
             anim.set_animations_enabled(False)  # final fade becomes instant
             settle["v"] = 0
-            before = len(self.timeouts)
-            self.assertFalse(polls[0]())       # tick reveals; stops polling
+            before = len(ticks)
+            self.assertFalse(ticks[0](self.box, None))  # reveals; stops
         self.assertEqual(self.box.get_opacity(), 1.0)
-        self.assertEqual(len(self.timeouts), before)  # no new poll scheduled
+        self.assertEqual(len(ticks), before)  # no new poll scheduled
 
     def test_immediate_reveal_when_already_settled(self):
         import time
@@ -91,7 +99,7 @@ class SettleRevealTest(unittest.TestCase):
             pass
         self.assertEqual(self.box.get_opacity(), 1.0)
         self.assertEqual(self.box.get_margin_top(), 0)
-        self.assertEqual(self._poll_cbs(), [])
+        self.assertEqual(len([t for t in ticks]), 1)
 
     def test_reveal_is_one_shot(self):
         settle = {"v": 0}

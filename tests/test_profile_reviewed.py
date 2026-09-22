@@ -200,8 +200,11 @@ class SagaTotalsTest(unittest.TestCase):
 
     def test_fetch_failure_keeps_fallback_text(self):
         page = make_profile()
-        page._populate_sagas(self._watched())
         calls = []
+        with mock.patch("gi.repository.GLib.Thread.new"):
+            page._populate_sagas(self._watched())
+        page._apply_saga_totals(page._reload_gen, {})
+        self.assertIsNotNone(_find(page, "2 watched"))
 
         class FailingService:
             def get_collection(self, cid):

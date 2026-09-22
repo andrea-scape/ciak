@@ -9,7 +9,6 @@ guarantees the page can never stay stuck invisible.
 from .anim import ENTRANCE_MS, ENTRANCE_PX, animations_enabled
 
 _SAFETY_TIMEOUT_MS = 2500
-_SETTLE_POLL_MS = 100
 _MAX_WAIT_MS = 700
 
 
@@ -48,7 +47,10 @@ def arm_launch_reveal(page_box, settle_fn=None, max_wait_ms=_MAX_WAIT_MS):
         from .anim import rise_fade_in
         rise_fade_in([state["box"]], ENTRANCE_MS, ENTRANCE_PX)
 
-    def _tick():
+    def _tick(*_args):
+        # Polls from the frame clock instead of a wall-clock timer, so the
+        # reveal decision lands on a frame boundary rather than up to 100ms
+        # late.  One callback per drawn frame; returns False to stop.
         if state["revealed"]:
             return False
         pending = 0
@@ -68,7 +70,6 @@ def arm_launch_reveal(page_box, settle_fn=None, max_wait_ms=_MAX_WAIT_MS):
         if state["settle_fn"] is None or state["polling"]:
             _do_reveal()
             return
-        from gi.repository import GLib
 
         # Settle immediately when nothing is outstanding; otherwise poll.
         try:
@@ -79,7 +80,7 @@ def arm_launch_reveal(page_box, settle_fn=None, max_wait_ms=_MAX_WAIT_MS):
             _do_reveal()
             return
         state["polling"] = True
-        GLib.timeout_add(_SETTLE_POLL_MS, _tick)
+        state["box"].add_tick_callback(_tick)
 
     return reveal
 

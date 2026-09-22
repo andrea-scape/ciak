@@ -165,10 +165,15 @@ def make_media_card(item, main_page=None, footer=None, watched=False,
     # reflows the flowbox. The same callback also notifies the owning
     # section (once, guarded by the revealed flag) so a header never
     # appears before its first poster.
+    safety_id = [None]
+
     def _finish_load():
         if getattr(info, "_info_revealed", False):
             return False
         info._info_revealed = True
+        if safety_id[0] is not None:
+            GLib.source_remove(safety_id[0])
+            safety_id[0] = None
         fade_in(info, CONTENT_MS)
         if on_poster_ready is not None:
             on_poster_ready()
@@ -180,7 +185,9 @@ def make_media_card(item, main_page=None, footer=None, watched=False,
                 on_load=_finish_load)
     # Safety net: an exotic decode failure that never reaches on_load
     # must not leave the card nameless; idempotent via the same guard.
-    GLib.timeout_add(4000, _finish_load)
+    # Canceled the moment the real load lands, so fast cards don't keep
+    # a stray 4s source alive in the main loop.
+    safety_id[0] = GLib.timeout_add(4000, _finish_load)
 
     return button
 

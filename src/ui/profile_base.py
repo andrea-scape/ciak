@@ -32,19 +32,24 @@ def _animate_stat_value(label, target):
     if target == 0:
         label.set_text("0")
         return
+    from .anim import animations_enabled
+    if not animations_enabled() or label.get_frame_clock() is None:
+        label.set_text(str(target))
+        return
     duration_ms = 300
-    steps = 20
-    step_time = max(1, duration_ms // steps)
-    current_step = [0]
+    start_us = GLib.get_monotonic_time()
+    duration_us = duration_ms * 1000
 
-    def animate():
-        current_step[0] += 1
-        progress = current_step[0] / steps
-        value = int(target * progress)
+    def _tick(widget, frame_clock):
+        elapsed = GLib.get_monotonic_time() - start_us
+        if elapsed >= duration_us:
+            label.set_text(str(target))
+            return False  # remove the tick
+        value = int(target * (elapsed / duration_us))
         label.set_text(str(value))
-        return current_step[0] < steps
+        return True
 
-    GLib.timeout_add(step_time, animate)
+    label.add_tick_callback(_tick)
 
 
 def _make_empty_label():
