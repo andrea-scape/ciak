@@ -32,6 +32,9 @@ class CollectionPage(Adw.Bin):
         self._render_gen = 0
         self._cancelled = False
         self._error_label = None
+        self._CHUNK_SIZE = 12
+        self._pending_parts = None
+        self._cards = []
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -121,7 +124,7 @@ class CollectionPage(Adw.Bin):
         self._skeletons.clear()
         # Refreshes (watched badges, stats) keep the viewport; first
         # render starts at the top.
-        restore_y = (
+        self._restore_y = (
             scroll_restore.capture(self.scrolled)
             if scroll_restore.had_content(self.scrolled) else 0.0
         )
@@ -167,24 +170,57 @@ class CollectionPage(Adw.Bin):
         next_up = next(
             (m for m in collection.parts if m.tmdb_id not in watched), None
         )
-        cards = []
-        for item in collection.parts:
+        # Building every card in one pass spikes the main thread while the
+        # page transition runs; spread large collections over idle ticks so
+        # frames stay smooth.  Small collections (one chunk) build inline
+        # exactly as before.
+        self._watched_ids = watched
+        self._next_up = next_up
+        self._cards = []
+        self._pending_parts = iter(collection.parts)
+        return self._pump_build(token)
+
+    def _pump_build(self, token):
+        if token != self._render_gen or self._cancelled:
+            self._pending_parts = None
+            return False
+        pending = self._pending_parts
+        if pending is None:
+            return False
+        chunks = self._CHUNK_SIZE
+        for _ in range(chunks):
+            try:
+                item = next(pending)
+            except StopIteration:
+                self._pending_parts = None
+                break
             footer = None
-            if item is next_up:
+            if item is self._next_up:
                 footer = Gtk.Label(label="Up next")
                 footer.add_css_class("next-up-tag")
                 footer.add_css_class("caption")
             card = make_media_card(
                 item, self.main_page,
-                watched=item.tmdb_id in watched,
+                watched=item.tmdb_id in self._watched_ids,
                 footer=footer,
             )
             self.grid.append(card)
-            cards.append(card)
+            self._cards.append(card)
 
+        if self._pending_parts is not None:
+            GLib.idle_add(self._pump_build, token)
+            return True
+
+        cards = self._cards
+        # Pre-hide the cards on multi-chunk builds so they can't flash at
+        # full opacity before the finish fade begins.
+        if len(cards) > chunks:
+            for card in cards:
+                card.set_opacity(0.0)
         rise_fade_in(cards, CONTENT_MS, CONTENT_PX)
-        if restore_y > 0.0:
-            scroll_restore.restore(self.scrolled, restore_y)
+        if self._restore_y > 0.0:
+            scroll_restore.restore(self.scrolled, self._restore_y)
+            self._restore_y = 0.0
         return False
 
     # ------------------------------------------------------------------
