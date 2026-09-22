@@ -291,6 +291,49 @@ class LocalMediaRepository:
         ).fetchall()
         return {(r[0], r[1]) for r in rows}
 
+    def get_watched_episodes_map(
+        self, show_ids
+    ) -> dict[int, set[tuple]]:
+        """Bulk variant of get_watched_episodes_for_show for many shows.
+
+        Returns {show_tmdb_id: {(season_number, episode_number), …}} with
+        one query, so the watchlist upcoming section avoids N per-show
+        round trips on every load."""
+        ids = [int(i) for i in show_ids if i is not None]
+        if not ids:
+            return {}
+        marks = {i: set() for i in ids}
+        conn = self._ensure_conn()
+        placeholders = ",".join("?" * len(ids))
+        rows = conn.execute(
+            "SELECT show_tmdb_id, season_number, episode_number "
+            "FROM watched_items "
+            f"WHERE media_type = 'episode' AND show_tmdb_id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        for sid, season, episode in rows:
+            if sid in marks:
+                marks[sid].add((season, episode))
+        return marks
+
+    def get_watchlist_upcoming_movies(self) -> list[dict]:
+        """Watchlist movies plus the cached release_date, for upcoming.
+
+        Same shape as get_watchlist("movie") with an extra release_date
+        key, so the upcoming section can resolve dates without a network
+        call when the sync already cached one."""
+        conn = self._ensure_conn()
+        rows = conn.execute(
+            "SELECT wl.tmdb_id, wl.media_type, wl.added_at, wl.is_anime, "
+            "m.title, m.year, m.poster_url, m.runtime, m.imdb_id, m.genres, "
+            "m.release_date "
+            "FROM watchlist_items wl "
+            "LEFT JOIN media_items m ON wl.tmdb_id = m.tmdb_id "
+            "WHERE wl.media_type = 'movie' "
+            "ORDER BY wl.added_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_watched_episode_dates(
         self, show_tmdb_id: int
     ) -> dict[tuple[int, int], int]:

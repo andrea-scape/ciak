@@ -343,17 +343,41 @@ class WatchlistPage(Gtk.Box):
         today = datetime.date.today()
         horizon = today + datetime.timedelta(days=self.UPCOMING_DAYS)
 
-        wl_movies = self.user_repo.get_watchlist("movie")
+        # Prefer bulk shots: one query for every movie's cached date, and a
+        # single watched-episodes query for all shows.  Repos without the
+        # bulk methods (test fakes) fall back to the previous per-item calls.
+        bulk_movies = getattr(self.user_repo, "get_watchlist_upcoming_movies",
+                              None)
+        if callable(bulk_movies):
+            wl_movies = bulk_movies()
+        else:
+            wl_movies = self.user_repo.get_watchlist("movie")
         wl_shows = self.user_repo.get_watchlist("show")
         watched_movie_ids = self.user_repo.get_watched_ids("movie")
+
+        mapper = getattr(self.user_repo, "get_watched_episodes_map", None)
+        watched_map = (
+            mapper([s["tmdb_id"] for s in wl_shows])
+            if callable(mapper)
+            else None
+        )
 
         entries = []
 
         def _movie_date(row):
-            # Old releases can never be "upcoming" — skip the network call.
+            # A cached release date settles the window without a network
+            # call.  Old releases can never be "upcoming" either way.
             year = row.get("year")
             if year is not None and year < today.year:
                 return None
+            rd = row.get("release_date")
+            if rd:
+                try:
+                    d = datetime.date.fromisoformat(rd)
+                except (ValueError, TypeError):
+                    d = None
+                if d is not None:
+                    return d if today <= d <= horizon else None
             try:
                 movie = self.metadata_service.get_movie(row["tmdb_id"])
             except NetworkError:
@@ -369,7 +393,11 @@ class WatchlistPage(Gtk.Box):
 
         def _next_episode(row):
             tmdb_id = row["tmdb_id"]
-            watched_eps = self.user_repo.get_watched_episodes_for_show(tmdb_id)
+            if watched_map is not None:
+                watched_eps = watched_map.get(tmdb_id, set())
+            else:
+                watched_eps = self.user_repo.get_watched_episodes_for_show(
+                    tmdb_id)
             try:
                 show = self.metadata_service.get_show(tmdb_id)
                 episodes = self.metadata_service.get_latest_season_episodes(tmdb_id)

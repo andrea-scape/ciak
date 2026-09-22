@@ -24,6 +24,8 @@ class _FakeRepo:
         self._watched = watched or set()
         self._watched_eps = watched_eps or set()
         self.data_version = data_version
+        self.map_calls = 0
+        self.per_show_calls = 0
 
     def get_watchlist(self, mode=None):
         return self._wl_movies if mode == "movie" else self._wl_shows
@@ -38,7 +40,15 @@ class _FakeRepo:
         return []
 
     def get_watched_episodes_for_show(self, tmdb_id):
+        self.per_show_calls += 1
         return set(self._watched_eps)
+
+    def get_watched_episodes_map(self, show_ids):
+        self.map_calls += 1
+        return {i: set(self._watched_eps) for i in show_ids}
+
+    def get_watchlist_upcoming_movies(self):
+        return [dict(m, release_date=None) for m in self._wl_movies]
 
     def get_watchlist_ids(self):
         return {r["tmdb_id"] for r in self._wl_movies + self._wl_shows}
@@ -430,6 +440,35 @@ class UpcomingPerfTest(unittest.TestCase):
         entries = page._compute_upcoming()
         self.assertEqual(entries, [])
 
+    def test_bulk_watchlist_queries_replace_per_show_calls(self):
+        today = datetime.date.today()
+        air = today + datetime.timedelta(days=2)
+        repo = _FakeRepo(wl_shows=[_wl_show(10)],
+                         watched_eps={(1, 2)})
+        meta = _FakeMetadata(episodes={10: [(1, 2, air)]},
+                             next_eps={10: (1, 2, air)})
+        page = _make_page(repo, meta)
+        page._compute_upcoming()
+        self.assertEqual(repo.map_calls, 1)
+        self.assertEqual(repo.per_show_calls, 0)
+
+    def test_repo_without_bulk_methods_still_works(self):
+        class LegacyRepo(_FakeRepo):
+            get_watched_episodes_map = None
+            get_watchlist_upcoming_movies = None
+
+        legacy = LegacyRepo(wl_shows=[_wl_show(10)],
+                            watched_eps={(1, 2)})
+
+        today = datetime.date.today()
+        air = today + datetime.timedelta(days=2)
+        meta = _FakeMetadata(episodes={10: [(1, 3, air)]},
+                             next_eps={10: (1, 3, air)})
+        page = _make_page(legacy, meta)
+        entries = page._compute_upcoming()
+        self.assertEqual(legacy.per_show_calls, 1)
+        self.assertEqual(len(entries), 1)
+
     def test_cache_reused_until_version_or_day_changes(self):
         today = datetime.date.today()
         repo = _FakeRepo(wl_movies=[_wl_movie(1)])
@@ -494,6 +533,87 @@ class DataVersionTest(unittest.TestCase):
             repo.get_watchlist("movie")
             repo.get_watched_ids("movie")
             self.assertEqual(repo.data_version, 0)
+
+
+class UpcomingRepoBulkTest(unittest.TestCase):
+    """The bulk shots back the upcoming section: one watched-episodes query
+    for every show, one watchlist query carrying cached movie dates."""
+
+    def _repo(self):
+        import os
+        import tempfile
+        from src.data.local.repository import LocalMediaRepository
+        d = tempfile.TemporaryDirectory()
+        repo = LocalMediaRepository(os.path.join(d.name, "db.sqlite"))
+        repo.initialize()
+        conn = repo._ensure_conn()
+        cols = {r[1] for r in conn.execute(
+            "PRAGMA table_info(media_items)").fetchall()}
+        if "release_date" not in cols:
+            conn.execute("ALTER TABLE media_items ADD COLUMN release_date TEXT")
+            conn.commit()
+        return repo, d
+
+    def test_watched_episodes_map_groups_by_show(self):
+        repo, d = self._repo()
+        try:
+            repo.mark_watched(10, "episode", show_tmdb_id=10,
+                              season_number=1, episode_number=2)
+            repo.mark_watched(10, "episode", show_tmdb_id=10,
+                              season_number=2, episode_number=1)
+            repo.mark_watched(12, "episode", show_tmdb_id=12,
+                              season_number=1, episode_number=1)
+            out = repo.get_watched_episodes_map([10, 12, 13])
+            self.assertEqual(out[10], {(1, 2), (2, 1)})
+            self.assertEqual(out[12], {(1, 1)})
+            self.assertEqual(out[13], set())
+            self.assertEqual(set(out), {10, 12, 13})
+        finally:
+            d.cleanup()
+
+    def test_watched_episodes_map_empty_ids(self):
+        repo, d = self._repo()
+        try:
+            self.assertEqual(
+                repo.get_watched_episodes_map([]), {})
+        finally:
+            d.cleanup()
+
+    def test_watched_episodes_map_matches_per_show_lookup(self):
+        repo, d = self._repo()
+        try:
+            for show, season, ep in [(20, 1, 1), (20, 1, 3), (21, 4, 9)]:
+                repo.mark_watched(show, "episode", show_tmdb_id=show,
+                                  season_number=season, episode_number=ep)
+            ids = [20, 21]
+            bulk = repo.get_watched_episodes_map(ids)
+            for sid in ids:
+                self.assertEqual(
+                    bulk[sid], repo.get_watched_episodes_for_show(sid))
+        finally:
+            d.cleanup()
+
+    def test_watchlist_upcoming_movies_carries_cached_date(self):
+        repo, d = self._repo()
+        try:
+            conn = repo._ensure_conn()
+            conn.execute(
+                "INSERT OR REPLACE INTO media_items "
+                "(tmdb_id, media_type, title, year, release_date, cached_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (1, "movie", "A", 2026, "2026-12-01", 0, 0),
+            )
+            conn.execute(
+                "DELETE FROM media_items WHERE tmdb_id = 2")
+            conn.commit()
+            repo.add_to_watchlist(1, "movie")
+            repo.add_to_watchlist(2, "movie")
+            rows = repo.get_watchlist_upcoming_movies()
+            by_id = {r["tmdb_id"]: r for r in rows}
+            self.assertEqual(by_id[1]["release_date"], "2026-12-01")
+            self.assertIsNone(by_id[2]["release_date"])
+        finally:
+            d.cleanup()
 
 
 
