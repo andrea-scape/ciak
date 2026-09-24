@@ -166,19 +166,19 @@ class MediaTypeLabelTest(unittest.TestCase):
     def test_single_episode(self):
         item = SimpleNamespace(media_type="show", season_number=1,
                                episode_number=1)
-        self.assertEqual(media_type_label(item), "TV Show - S01E01")
+        self.assertEqual(media_type_label(item), "TV Show · S01E01")
 
     def test_range(self):
         item = SimpleNamespace(media_type="show", season_number=1,
                                episode_number=1, end_season_number=1,
                                end_episode_number=3)
-        self.assertEqual(media_type_label(item), "TV Show - S01E01 to S01E03")
+        self.assertEqual(media_type_label(item), "TV Show · S01E01 to S01E03")
 
     def test_range_across_seasons(self):
         item = SimpleNamespace(media_type="show", season_number=1,
                                episode_number=24, end_season_number=2,
                                end_episode_number=1)
-        self.assertEqual(media_type_label(item), "TV Show - S01E24 to S02E01")
+        self.assertEqual(media_type_label(item), "TV Show · S01E24 to S02E01")
 
 
 class CardPosterSizeTest(unittest.TestCase):

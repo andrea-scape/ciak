@@ -47,7 +47,7 @@ def config_grid(grid):
 
 def media_type_label(item):
     """Caption under a poster.  Episodes get a range/position suffix, e.g.
-    "TV Show - S01E01 to S01E03" for a day group, "TV Show - S01E01" for a
+    "TV Show · S01E01 to S01E03" for a day group, "TV Show · S01E01" for a
     single episode, plain "TV Show"/"Movie" otherwise."""
     if item.media_type == "movie":
         return "Movie"
@@ -59,8 +59,8 @@ def media_type_label(item):
     end_season = getattr(item, "end_season_number", None)
     end_episode = getattr(item, "end_episode_number", None)
     if end_episode is not None and (end_season, end_episode) != (season, episode):
-        return f"TV Show - {start} to S{end_season:02d}E{end_episode:02d}"
-    return f"TV Show - {start}"
+        return f"TV Show · {start} to S{end_season:02d}E{end_episode:02d}"
+    return f"TV Show · {start}"
 
 
 def make_media_card(item, main_page=None, footer=None, watched=False,

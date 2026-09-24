@@ -532,8 +532,8 @@ class WatchlistPage(Gtk.Box):
             else:
                 card = make_media_card(
                     item, self.main_page,
-                    subtitle=(f"S{ep.season_number:02d}E{ep.episode_number:02d}"
-                              f" · {sort_date:%a %-d %b}"),
+subtitle=(f"TV Show · S{ep.season_number:02d}E{ep.episode_number:02d}"
+                          f" · {sort_date:%a %-d %b}"),
                 )
             self.upcoming_grid.append(card)
             cards.append(card)

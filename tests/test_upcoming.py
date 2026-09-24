@@ -233,7 +233,7 @@ class UpcomingSectionTest(unittest.TestCase):
                 c = c.get_next_sibling()
 
         walk(card)
-        expected = f"S01E02 · {air:%a %-d %b}"
+        expected = f"TV Show · S01E02 · {air:%a %-d %b}"
         self.assertIn(expected, texts)
 
     def test_upcoming_uses_show_poster_not_episode_still(self):
@@ -299,7 +299,7 @@ class UpcomingSectionTest(unittest.TestCase):
                 c = c.get_next_sibling()
 
         walk_collect(cards[1], texts)
-        self.assertIn(f"S01E05 · {(today + datetime.timedelta(days=2)):%a %-d %b}",
+        self.assertIn(f"TV Show · S01E05 · {(today + datetime.timedelta(days=2)):%a %-d %b}",
                       texts)
 
     def test_stale_token_ignored(self):
