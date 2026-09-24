@@ -672,7 +672,10 @@ class DiaryPage(Adw.Bin):
         adj = self._scroll.get_vadjustment()
         adj.connect("notify::value", self._on_scroll)
         adj.connect("changed", self._on_scroll)
-        self.set_child(self._empty)
+        # Hold the launch-reveal child from the start instead of the empty
+        # page: mounting the StatusPage here would flash "No diary entries
+        # yet" during the deferred first load whenever there is data.
+        self.set_child(self._overlay)
 
         # Fresh pages are never in main_page's stale set, so nothing else
         # would ever trigger the first render — same as the grid pages.
