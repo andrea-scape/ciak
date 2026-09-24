@@ -85,6 +85,11 @@
 					"type": "dir",
 					"path": "../.."
 				}
+			],
+			"post-install": [
+				"mv $FLATPAK_DEST/share/applications/io.github.andrea_scape.ciak.desktop $FLATPAK_DEST/share/applications/io.github.andrea_scape.ciak.Devel.desktop",
+				"sed -e 's|io.github.andrea_scape.ciak</id>|io.github.andrea_scape.ciak.Devel</id>|' -e 's|io.github.andrea_scape.ciak.desktop|io.github.andrea_scape.ciak.Devel.desktop|' $FLATPAK_DEST/share/metainfo/io.github.andrea_scape.ciak.metainfo.xml > $FLATPAK_DEST/share/metainfo/io.github.andrea_scape.ciak.Devel.metainfo.xml",
+				"rm $FLATPAK_DEST/share/metainfo/io.github.andrea_scape.ciak.metainfo.xml"
 			]
 		}
 	]
